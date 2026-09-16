@@ -236,7 +236,7 @@ export default async function NotesPage({
               <p className="note">
                 Search covers what you wrote and the track and artist it was
                 about. Try fewer words, or{" "}
-                <Link href="/notes">see everything</Link>.
+                <Link href="/notes#notes">see everything</Link>.
               </p>
             ) : (
               <>
@@ -279,7 +279,7 @@ export default async function NotesPage({
                 {filtered ? (
                   <>
                     Try widening them, or{" "}
-                    <Link href="/notes">see everything</Link>.
+                    <Link href="/notes#notes">see everything</Link>.
                   </>
                 ) : (
                   <>

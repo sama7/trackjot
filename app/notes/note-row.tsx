@@ -43,7 +43,6 @@ export function NoteRow({
   allPlaces?: string[];
 }) {
   const [editing, setEditing] = useState(false);
-  const [editingTags, setEditingTags] = useState(false);
   const shareUrl = note.shareToken ? `${baseUrl}/n/${note.shareToken}` : null;
 
   return (
@@ -78,6 +77,7 @@ export function NoteRow({
         <form
           action={async (formData) => {
             await updateNoteAction(note.id, formData);
+            await setNoteTagsAction(note.id, formData);
             setEditing(false);
           }}
           className="inline-edit"
@@ -102,6 +102,26 @@ export function NoteRow({
             placeLabel={note.placeLabel}
             knownPlaces={allPlaces}
           />
+          {/*
+            Tags edit here, not behind their own button.
+            
+            "Edit" and "Add tags" sat side by side as two ways into the same
+            card, each opening a different form, so changing a note's wording
+            and its tags took two rounds of open-change-save. Tagging is part of
+            filing a note, and this is the form for filing a note.
+          */}
+          <fieldset className="sub-fields">
+            <legend>Tags</legend>
+            <label htmlFor={`tags-${note.id}`} className="visually-hidden">
+              Tags, separated by commas
+            </label>
+            <TagInput
+              id={`tags-${note.id}`}
+              name="tags"
+              defaultValue={note.tags.join(", ")}
+              suggestions={allTags}
+            />
+          </fieldset>
           <div className="row">
             <button type="submit">Save</button>
             <button type="button" className="linkish" onClick={() => setEditing(false)}>
@@ -132,49 +152,34 @@ export function NoteRow({
         {describeTimestamps(note.createdAt, note.updatedAt)}
       </p>
 
-      {note.tags.length > 0 && !editingTags && (
+      {note.tags.length > 0 && !editing && (
         <div className="row tag-list">
           {note.tags.map((name) => (
-            <Link key={name} href={`/notes?tag=${encodeURIComponent(name)}`} className="chip tag">
+            <Link
+              key={name}
+              href={`/notes?tag=${encodeURIComponent(name)}#notes`}
+              className="chip tag"
+            >
               {name}
             </Link>
           ))}
         </div>
       )}
 
-      {editingTags && (
-        <form
-          action={async (formData) => {
-            await setNoteTagsAction(note.id, formData);
-            setEditingTags(false);
-          }}
-          className="tag-form"
-        >
-          <label htmlFor={`tags-${note.id}`} className="visually-hidden">
-            Tags, separated by commas
-          </label>
-          <TagInput
-            id={`tags-${note.id}`}
-            name="tags"
-            defaultValue={note.tags.join(", ")}
-            suggestions={allTags}
-          />
-          <button type="submit">Save tags</button>
-          <button type="button" className="linkish" onClick={() => setEditingTags(false)}>
-            Cancel
-          </button>
-        </form>
-      )}
-
+      {/*
+        Three lines, in the order the actions actually get used.
+        
+        Everything routine sits together on one line; the preview gets its own,
+        because expanding it grows a row of five controls and a progress bar
+        that would otherwise reflow the links beside it mid-listen; and Delete
+        gets its own at the bottom, away from everything reversible. It was
+        previously the last item on a wrapping line, which on a phone put "one
+        tap and the note is gone" directly beneath whatever happened to wrap.
+      */}
       <div className="row actions">
         {!editing && (
           <button type="button" className="linkish" onClick={() => setEditing(true)}>
             Edit
-          </button>
-        )}
-        {!editingTags && (
-          <button type="button" className="linkish" onClick={() => setEditingTags(true)}>
-            {note.tags.length > 0 ? "Edit tags" : "Add tags"}
           </button>
         )}
 
@@ -193,13 +198,18 @@ export function NoteRow({
           </a>
         )}
 
-        {/* Only for notes about a track. A note about a collection has no one
-            recording to preview, and offering a play button there would be a
-            promise about something that does not exist. */}
-        {!note.collection && (
-          <PreviewPlayer noteId={note.id} title={note.title} resolve={previewForNoteAction} />
-        )}
+      </div>
 
+      {/* Only for notes about a track. A note about a collection has no one
+          recording to preview, and offering a play button there would be a
+          promise about something that does not exist. */}
+      {!note.collection && (
+        <div className="row actions note-preview-row">
+          <PreviewPlayer noteId={note.id} title={note.title} resolve={previewForNoteAction} />
+        </div>
+      )}
+
+      <div className="row actions note-danger-row">
         <ConfirmButton
           label="Delete"
           title="Delete this note?"

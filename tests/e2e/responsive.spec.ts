@@ -504,7 +504,7 @@ async function nativeControlsFollowTheTheme(page: Page): Promise<string[]> {
  * ever sees a page's resting state is not testing the page.
  */
 async function revealCollapsedSurfaces(page: Page): Promise<void> {
-  for (const name of [/^edit$/i, /^(edit|add) tags$/i, /more filters/i]) {
+  for (const name of [/^edit$/i, /more filters/i]) {
     const buttons = page.getByRole("button", { name });
     const count = await buttons.count();
     for (let i = 0; i < count; i += 1) {
@@ -528,12 +528,20 @@ async function seed(page: Page): Promise<string> {
     ...CN_TOWER,
     body: "a note to give the page something to lay out",
   });
+  /**
+   * Tags are part of editing a note now, not a second form beside it — "Edit"
+   * and "Add tags" used to be two ways into the same card, each with its own
+   * open-change-save round.
+   */
   await page
-    .getByRole("button", { name: /add tags/i })
+    .getByRole("button", { name: /^edit$/i })
     .first()
     .click();
   await page.locator("input[name='tags']").first().fill("qawwali, late night");
-  await page.getByRole("button", { name: /save tags/i }).click();
+  await page
+    .getByRole("button", { name: /^save$/i })
+    .first()
+    .click();
   await expect(page.locator("a.chip.tag").first()).toBeVisible({
     timeout: 30_000,
   });

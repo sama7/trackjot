@@ -666,23 +666,46 @@ a.chip.tag.active .note { color: var(--bg); opacity: 0.7; }
   gap: 0.4rem;
 }
 
+/* Round icon buttons, sized by their icon rather than by a text label — which
+   is what keeps them the same size whether they read play, pause or a skip. */
 .preview-toggle,
 .preview-step {
-  font: inherit;
-  font-size: 0.85rem;
-  padding: 0.2rem 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--bg);
   color: var(--fg);
   cursor: pointer;
-  /* Digits in "+5s" / "−5s" line up, so the pair does not jitter as it is
-     pressed. */
-  font-variant-numeric: tabular-nums;
 }
-.preview-toggle { min-width: 4.2rem; }
 .preview-toggle:hover,
 .preview-step:hover { border-color: var(--accent); color: var(--accent); }
+
+.preview-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  display: block;
+}
+/* The step size lives inside the circular arrow, so it has to be small,
+   bold and centred rather than inheriting body type. */
+.preview-icon-step {
+  font-size: 8.5px;
+  font-weight: 700;
+  fill: currentColor;
+  stroke: none;
+}
+
+.preview-spinner { animation: preview-spin 900ms linear infinite; }
+@keyframes preview-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview-spinner { animation: none; }
+}
 
 .preview-bar {
   display: inline-block;
@@ -709,7 +732,25 @@ a.chip.tag.active .note { color: var(--bg); opacity: 0.7; }
 /* Touch targets: these are the smallest controls on the card. */
 @media (pointer: coarse) {
   .preview-toggle,
-  .preview-step { min-height: 2rem; }
+  .preview-step {
+    width: 2.4rem;
+    height: 2.4rem;
+  }
+}
+
+/**
+ * Three action lines, in the order they get used.
+ *
+ * The preview has its own because expanding it grows five controls and a
+ * progress bar, and sharing a line meant the links beside it reflowed the
+ * moment someone pressed play. Delete has its own because it was previously the
+ * last item on a wrapping row — which on a phone put the one irreversible
+ * action directly under whatever happened to wrap that day.
+ */
+.note-preview-row { margin-top: 0.5rem; }
+.note-danger-row {
+  margin-top: 0.5rem;
+  justify-content: flex-start;
 }
 
 /* ---- collapsible page sections ---- */
@@ -1169,14 +1210,48 @@ ul.suggestions button:hover {
 @media (max-width: 46rem) {
   .track-album { display: none; }
 
+  /**
+   * A square tap target with its glyph centred in it.
+   *
+   * It was a text "⋯" in a padded block: the character's own metrics decided
+   * where it sat, which in the system stack put it low and left of the middle
+   * of its own button, and off the row's centre line. An inline-flex box with a
+   * drawn icon is centred by the layout instead of by a font.
+   *
+   * `margin-left: auto` pins it to the row's right edge regardless of what the
+   * siblings before it do — the album title beside it is hidden at this width,
+   * so relying on a neighbour to push it over was never stable.
+   */
   .track-more {
-    display: block;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    margin-left: auto;
+    flex: 0 0 auto;
     background: none;
     border: none;
     color: var(--muted);
-    font-size: 1.25rem;
-    line-height: 1;
-    padding: 0.5rem 0.6rem;
+    padding: 0;
+  }
+  .track-more svg {
+    width: 1.25rem;
+    height: 1.25rem;
+    display: block;
+  }
+
+  /* Sits under the sheet and over everything else, so a tap anywhere off the
+     sheet lands here. Transparent rather than dark: the sheet's own shadow
+     already separates it, and dimming the page was not what was missing. */
+  .sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 19;
+    border: none;
+    padding: 0;
+    background: transparent;
+    cursor: default;
   }
 
   .track-note-body { margin-left: 0; }
@@ -1278,10 +1353,27 @@ dialog.art-dialog[open] { display: flex; }
 dialog.art-dialog:not([open]) { display: none; }
 dialog.art-dialog:focus,
 dialog.art-dialog:focus-visible { outline: none; }
+/**
+ * The image's box has to be the picture, not a letterbox around it.
+ *
+ * `object-fit: contain` fits the *picture* inside the *box* — it does not
+ * shrink the box. In landscape that left a 640×314 `<img>` containing a 314×314
+ * cover, with 163px of transparent element on each side. Those strips belong to
+ * the image, so tapping beside the cover hit the image and nothing closed;
+ * "tap outside to dismiss" worked in portrait, where there is no letterbox, and
+ * appeared broken in landscape. Same code, different aspect ratio.
+ *
+ * Constraining both axes and letting `width`/`height` stay `auto` makes the box
+ * track the picture at every orientation, so the area beside it really is the
+ * backdrop. The height cap leaves room for the Close button beneath.
+ */
 dialog.art-dialog img {
   max-width: 100%;
-  /* `min-height: 0` overrides the flex default of `auto`, which is what lets a
-     replaced element shrink below its natural height instead of overflowing. */
+  max-height: calc(92vh - 3.5rem);
+  width: auto;
+  height: auto;
+  /* Overrides the flex default of `auto`, which is what lets a replaced element
+     shrink below its natural height instead of overflowing. */
   min-height: 0;
   object-fit: contain;
 }

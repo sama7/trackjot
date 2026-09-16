@@ -109,7 +109,10 @@ export function BrowseBar({
         </button>
 
         {(active > 0 || q) && (
-          <Link href="/notes" className="note">
+          /* `#notes` for the same reason the tag and place links carry it:
+             clearing a filter should land on the list you are clearing it for,
+             not scroll back past the listening strip to the top of the page. */
+          <Link href="/notes#notes" className="note">
             Clear
           </Link>
         )}

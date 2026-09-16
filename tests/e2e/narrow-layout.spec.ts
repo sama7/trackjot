@@ -463,6 +463,138 @@ test.describe("the track playing right now", () => {
   }
 
   /**
+   * Tapping beside the cover closes it — in landscape too.
+   *
+   * It did not, and the reason was geometry rather than the handler.
+   * `object-fit: contain` fits the *picture* inside the *box*; it does not
+   * shrink the box. So in landscape a 640×314 `<img>` held a 314×314 cover with
+   * 163px of transparent element on each side, and those strips belong to the
+   * image — a tap there hit the image, not the backdrop. Portrait has no
+   * letterbox, which is why the same code worked there and looked broken here.
+   *
+   * Asserted as "the image element is exactly the picture", because that is the
+   * property the dismissal depends on, and it holds at any aspect ratio.
+   */
+  for (const [orientation, viewport] of [
+    ["portrait", NARROW],
+    ["landscape", { width: 874, height: 402 }],
+  ] as const) {
+    test(`the cover has no dead margin to tap in ${orientation}`, async ({
+      page,
+    }) => {
+      const square =
+        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='640'%3E%3Crect width='640' height='640' fill='%23888'/%3E%3C/svg%3E";
+      await overflowOf(
+        page,
+        `<dialog class="art-dialog" id="art"><img id="pic" src="${square}" alt="cover">` +
+          `<button class="art-dialog-close">Close</button></dialog>`,
+        viewport,
+      );
+      await page.evaluate(() =>
+        (document.querySelector("#art") as HTMLDialogElement).showModal(),
+      );
+
+      const gap = await page.evaluate(() => {
+        const img = document.querySelector("#pic") as HTMLImageElement;
+        const box = img.getBoundingClientRect();
+        const scale = Math.min(
+          box.width / img.naturalWidth,
+          box.height / img.naturalHeight,
+        );
+        return {
+          sides: Math.round((box.width - img.naturalWidth * scale) / 2),
+          topAndBottom: Math.round(
+            (box.height - img.naturalHeight * scale) / 2,
+          ),
+        };
+      });
+
+      expect(
+        gap.sides,
+        "dead image margin beside the cover swallows the tap",
+      ).toBe(0);
+      expect(
+        gap.topAndBottom,
+        "dead image margin above the cover swallows the tap",
+      ).toBe(0);
+    });
+  }
+
+  /**
+   * The per-track options button is placed by the layout, not by a font.
+   *
+   * It was a text "⋯" in a padded block, so the character's own metrics decided
+   * where it sat inside its own button — and those metrics come from whichever
+   * font the platform resolves. Headless WebKit centres it perfectly, which is
+   * exactly why measuring it here proved nothing about an iPhone; this is the
+   * same class of fault as the date input the UA was sizing.
+   *
+   * Drawing the glyph removes the variable, and the assertion is on the things
+   * that hold in every engine: a square target at the row's right edge with its
+   * icon centred by flexbox.
+   */
+  test("the track options button is a centred, square, right-aligned target", async ({
+    page,
+  }) => {
+    const dots =
+      '<svg aria-hidden="true"><circle cx="5" cy="12" r="1.9" fill="currentColor"/>' +
+      '<circle cx="12" cy="12" r="1.9" fill="currentColor"/>' +
+      '<circle cx="19" cy="12" r="1.9" fill="currentColor"/></svg>';
+    await overflowOf(
+      page,
+      '<ol class="tracklist"><li class="track"><div class="track-line">' +
+        '<span class="track-num note">1</span>' +
+        '<div class="track-main"><div class="track-title">CN TOWER</div></div>' +
+        `<button class="track-more" id="more" aria-label="Options">${dots}</button>` +
+        "</div></li></ol>",
+      NARROW,
+    );
+
+    const box = await page.evaluate(() => {
+      const row = document
+        .querySelector(".track-line")!
+        .getBoundingClientRect();
+      const button = document.querySelector("#more")!.getBoundingClientRect();
+      const icon = document.querySelector("#more svg")!.getBoundingClientRect();
+      return {
+        offRowCentre: Math.round(
+          button.top + button.height / 2 - (row.top + row.height / 2),
+        ),
+        iconOffCentreX: Math.round(
+          icon.left + icon.width / 2 - (button.left + button.width / 2),
+        ),
+        iconOffCentreY: Math.round(
+          icon.top + icon.height / 2 - (button.top + button.height / 2),
+        ),
+        fromRowRight: Math.round(row.right - button.right),
+        width: Math.round(button.width),
+        height: Math.round(button.height),
+      };
+    });
+
+    expect(
+      Math.abs(box.offRowCentre),
+      "the button is off the row's centre line",
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(box.iconOffCentreX),
+      "the icon is off-centre in its button",
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(box.iconOffCentreY),
+      "the icon is off-centre in its button",
+    ).toBeLessThanOrEqual(1);
+    expect(
+      box.fromRowRight,
+      "the button is not at the row's right edge",
+    ).toBeLessThanOrEqual(1);
+    // A square, and a real tap target rather than whatever a glyph happened to
+    // measure — it was 39px wide before.
+    expect(box.width).toBe(box.height);
+    expect(box.width).toBeGreaterThanOrEqual(44);
+  });
+
+  /**
    * Native control chrome has to be painted for the theme the page is wearing.
    *
    * A select's chevron, a date picker and a checkbox tick are drawn by the UA

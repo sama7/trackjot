@@ -85,9 +85,37 @@ export function TrackList({
                 aria-label={`Options for ${track.title}`}
                 onClick={() => setOpenId(open ? null : track.id)}
               >
-                ⋯
+                {/* Drawn rather than typed. The character "⋯" is centred by
+                    whatever font happens to resolve, and in the system stack it
+                    sat low and slightly left inside its tap target; three
+                    circles are placed by us and land the same way everywhere. */}
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <circle cx="5" cy="12" r="1.9" fill="currentColor" />
+                  <circle cx="12" cy="12" r="1.9" fill="currentColor" />
+                  <circle cx="19" cy="12" r="1.9" fill="currentColor" />
+                </svg>
               </button>
             </div>
+
+            {/*
+              Something to tap that is not the sheet.
+              
+              The sheet is `position: fixed` over the page, and the page behind
+              it stayed live — so the only way out was the Close button, and
+              tapping the dimmed area above did nothing. Every other dismissible
+              surface here closes that way, including the cover art, and a
+              bottom sheet is the one people are most likely to try it on.
+              
+              Rendered only for the open row, so there is exactly one.
+            */}
+            {open && (
+              <button
+                type="button"
+                className="sheet-backdrop"
+                aria-label="Close options"
+                onClick={() => setOpenId(null)}
+              />
+            )}
 
             {/* The note itself, at every width. */}
             {track.note && !open && <p className="track-note-body">{track.note.body}</p>}
