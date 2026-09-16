@@ -595,6 +595,61 @@ test.describe("the track playing right now", () => {
   });
 
   /**
+   * A cover never outgrows the box that holds it.
+   *
+   * The collection sheet enlarges a track's cover on narrow screens, and its
+   * rule could resize the `<img>` but not the `<button>` wrapping it — because
+   * the button's size came from an **inline style**, which no stylesheet can
+   * override. The image grew to 224px inside a 200px button, so 24px of artwork
+   * hung out of the bottom of its own box and printed straight over the track
+   * title underneath.
+   *
+   * Asserted as "the button is the image", since that is the property the
+   * layout below it depends on, plus the clearance itself.
+   */
+  test("the enlarged sheet cover fits its button and clears the title", async ({
+    page,
+  }) => {
+    const square =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='600'%3E%3Crect width='600' height='600' fill='%23888'/%3E%3C/svg%3E";
+    await overflowOf(
+      page,
+      '<ol class="tracklist"><li class="track sheet-open"><div class="track-details">' +
+        '<div class="sheet-head">' +
+        '<button class="cover-button" id="btn" style="--cover-size:200px">' +
+        `<img class="cover sheet-cover" id="pic" src="${square}" width="200" height="200" alt="">` +
+        "</button>" +
+        '<div><strong id="title">Then We Get Nast(y)</strong>' +
+        '<div class="note">Sybyr</div></div>' +
+        "</div></div></li></ol>",
+      NARROW,
+    );
+
+    const box = await page.evaluate(() => {
+      const button = document.querySelector("#btn")!.getBoundingClientRect();
+      const image = document.querySelector("#pic")!.getBoundingClientRect();
+      const title = document.querySelector("#title")!.getBoundingClientRect();
+      return {
+        spillsOutOfButton: Math.round(image.bottom - button.bottom),
+        overlapsTitle: Math.round(image.bottom - title.top),
+        sameWidth: Math.round(image.width) === Math.round(button.width),
+      };
+    });
+
+    expect(
+      box.spillsOutOfButton,
+      "the cover hangs out of its own button",
+    ).toBeLessThanOrEqual(0);
+    expect(
+      box.overlapsTitle,
+      "the cover prints over the track title",
+    ).toBeLessThanOrEqual(0);
+    expect(box.sameWidth, "the button and the cover are different widths").toBe(
+      true,
+    );
+  });
+
+  /**
    * Native control chrome has to be painted for the theme the page is wearing.
    *
    * A select's chevron, a date picker and a checkbox tick are drawn by the UA

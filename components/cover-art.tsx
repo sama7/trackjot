@@ -48,7 +48,7 @@ export function CoverArt({
     return (
       <span
         className={`${classes} cover-empty`}
-        style={{ width: size, height: size }}
+        style={coverSize(size)}
         aria-hidden="true"
       />
     );
@@ -78,6 +78,24 @@ export function CoverArt({
    * share.
    */
   return <ArtworkButton image={image} src={large ?? src} title={title} size={size} />;
+}
+
+/**
+ * The size as a custom property rather than as `width` and `height`.
+ *
+ * **An inline style cannot be overridden by a stylesheet**, and that is not a
+ * style preference here — it was a bug. The collection sheet enlarges a track's
+ * cover on narrow screens, and its rule could resize the `<img>` but never the
+ * `<button>` wrapping it, because the button's size arrived inline. The image
+ * grew to 224px inside a button still 200px tall, so 24px of artwork hung out
+ * of the bottom of its own box and printed over the track title beneath it.
+ *
+ * A custom property carries the default *into* the cascade instead of above it,
+ * so a rule with a plain selector can change it and the button and the image
+ * stay the same size.
+ */
+function coverSize(size: number): React.CSSProperties {
+  return { ["--cover-size" as string]: `${size}px` } as React.CSSProperties;
 }
 
 function ArtworkButton({
@@ -126,7 +144,7 @@ function ArtworkButton({
       <button
         type="button"
         className="cover-button"
-        style={{ width: size, height: size }}
+        style={coverSize(size)}
         onClick={show}
         aria-label={title ? `See the cover for ${title}` : "See the full-size cover"}
       >

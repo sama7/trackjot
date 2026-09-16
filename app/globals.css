@@ -1031,7 +1031,11 @@ button.mode.active {
   display: block;
 }
 
-.cover-empty { display: block; }
+.cover-empty {
+  display: block;
+  width: var(--cover-size);
+  height: var(--cover-size);
+}
 
 .collection-cover {
   width: 100%;
@@ -1312,6 +1316,9 @@ button.cover-button {
   cursor: zoom-in;
   line-height: 0;
   flex-shrink: 0;
+  /* Set by `coverSize` in the component, so a later rule can still change it. */
+  width: var(--cover-size);
+  height: var(--cover-size);
 }
 
 /**
