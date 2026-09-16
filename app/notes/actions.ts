@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+import { previewForRecording } from "@/lib/music/preview";
 import { DEFAULT_TIME_ZONE, toDateInputValue } from "@/lib/format-date";
 import { DatePrecision, PlacePrecision, Visibility } from "@prisma/client";
 import {
@@ -188,4 +190,30 @@ export async function setNoteVisibilityFormAction(
 
 function isVisibility(value: string): value is Visibility {
   return Object.values(Visibility).includes(value as Visibility);
+}
+
+/**
+ * A 30-second preview for a note's track, if any provider serves one.
+ *
+ * Fetched on demand rather than with the list: resolving a preview can mean a
+ * call to Apple or Deezer, and a page of fifty notes must not make fifty of
+ * them to decide what a button should say. The answer is cached on the
+ * external-id row, so this is one round trip per track, ever.
+ *
+ * **Owner-scoped, like every other read here.** The note id comes from a
+ * browser, and while a preview URL is a public CDN link, letting anyone turn a
+ * note id into a response that differs for real and fake ids would confirm
+ * whether a stranger's note exists. A note that is not yours returns null,
+ * exactly as a note with no preview does.
+ */
+export async function previewForNoteAction(noteId: string): Promise<{ url: string | null }> {
+  const user = await requireUser();
+
+  const note = await prisma.note.findFirst({
+    where: { id: noteId, ownerId: user.id },
+    select: { recordingId: true },
+  });
+  if (!note?.recordingId) return { url: null };
+
+  return { url: await previewForRecording(note.recordingId) };
 }

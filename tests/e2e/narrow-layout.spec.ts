@@ -410,6 +410,59 @@ test.describe("the track playing right now", () => {
   });
 
   /**
+   * The opened cover has to fit the screen it is opened on.
+   *
+   * It did not in landscape: the dialog was capped at `92vh` while the image
+   * inside it was capped only in width, so on a phone turned sideways a square
+   * cover rendered at its full 640px and ran off the bottom — taking the Close
+   * button with it, on the one surface where Escape is not available because
+   * there is no keyboard.
+   *
+   * Both orientations are checked, because portrait was fine throughout and
+   * would have gone on passing a check that only looked there.
+   */
+  for (const [orientation, viewport] of [
+    ["portrait", NARROW],
+    ["landscape", { width: 874, height: 402 }],
+  ] as const) {
+    test(`the opened cover and its close button fit in ${orientation}`, async ({
+      page,
+    }) => {
+      const square =
+        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='640'%3E%3Crect width='640' height='640' fill='%23888'/%3E%3C/svg%3E";
+      await overflowOf(
+        page,
+        `<dialog class="art-dialog" id="art"><img src="${square}" alt="cover">` +
+          `<button class="art-dialog-close" id="close">Close</button></dialog>`,
+        viewport,
+      );
+      await page.evaluate(() =>
+        (document.querySelector("#art") as HTMLDialogElement).showModal(),
+      );
+
+      const box = await page.evaluate(() => {
+        const dialog = document.querySelector("#art")!.getBoundingClientRect();
+        const close = document.querySelector("#close")!.getBoundingClientRect();
+        return {
+          belowFold: Math.round(
+            Math.max(0, dialog.bottom - window.innerHeight),
+          ),
+          pastRight: Math.round(Math.max(0, dialog.right - window.innerWidth)),
+          closeVisible: close.bottom <= window.innerHeight && close.top >= 0,
+        };
+      });
+
+      expect(box.belowFold, "the cover runs off the bottom of the screen").toBe(
+        0,
+      );
+      expect(box.pastRight, "the cover runs off the side of the screen").toBe(
+        0,
+      );
+      expect(box.closeVisible, "the close button is off-screen").toBe(true);
+    });
+  }
+
+  /**
    * Native control chrome has to be painted for the theme the page is wearing.
    *
    * A select's chevron, a date picker and a checkbox tick are drawn by the UA

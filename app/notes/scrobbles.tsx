@@ -181,20 +181,22 @@ export function Scrobbles({ username }: { username: string }) {
 
   return (
     <section className="scrobbles">
-      <div className="row scrobbles-head">
-        <strong>Recently played</strong>
-        <span className="note">
-          from{" "}
-          <a
-            href={`https://www.last.fm/user/${encodeURIComponent(username)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {username}
-          </a>{" "}
-          on Last.fm
-        </span>
-      </div>
+      {/*
+        No heading here any more: the panel this sits inside supplies "Recently
+        played" and says whose account it is, and printing both produced the
+        same words twice. The link to the profile stays, because a summary is a
+        control and nesting a link inside one is a trap for anyone trying to
+        expand the section.
+      */}
+      <p className="note scrobbles-source">
+        <a
+          href={`https://www.last.fm/user/${encodeURIComponent(username)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          See {username} on Last.fm
+        </a>
+      </p>
 
       {state === null && <p className="note">Looking at what you&rsquo;ve been playing…</p>}
 

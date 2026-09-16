@@ -14,9 +14,13 @@ import { searchNoteRows } from "@/lib/notes/search";
 import { listTags } from "@/lib/notes/tags";
 import { listPlaces } from "@/lib/notes/places";
 import { PAGE_SIZE, countNotes, resolveLimit } from "@/lib/notes/browse";
-import { lastfmAuthConfigured, lastfmConfigured } from "@/lib/music/lastfm/client";
+import {
+  lastfmAuthConfigured,
+  lastfmConfigured,
+} from "@/lib/music/lastfm/client";
 import { BrowseBar } from "./browse-bar";
 import { LastfmPrompt, Scrobbles } from "./scrobbles";
+import { Panel } from "@/components/panel";
 import { CaptureForm } from "./capture-form";
 import { NoteRow } from "./note-row";
 import { TagBar } from "./tag-bar";
@@ -60,13 +64,16 @@ export default async function NotesPage({
 
   // The sort key comes off the URL, so it is checked against the allowlist
   // rather than cast — a query string must never choose an ordering expression.
-  const sort: SortKey = isSortKey(params.sort ?? "") ? (params.sort as SortKey) : "recent";
+  const sort: SortKey = isSortKey(params.sort ?? "")
+    ? (params.sort as SortKey)
+    : "recent";
   const requestedDirection: SortDirection | undefined =
     params.dir === "asc" || params.dir === "desc" ? params.dir : undefined;
   // Names read A→Z; dates read newest first. Each sort brings its own sensible
   // default so the user picks a field, not a field and a direction. The rule
   // lives in one place so the control's wording and the query cannot drift.
-  const direction: SortDirection = requestedDirection ?? defaultDirectionFor(sort);
+  const direction: SortDirection =
+    requestedDirection ?? defaultDirectionFor(sort);
 
   const filters = {
     track: (params.track ?? "").trim(),
@@ -76,14 +83,17 @@ export default async function NotesPage({
     from: (params.from ?? "").trim(),
     to: (params.to ?? "").trim(),
   };
-  const activeFilters = Object.values(filters).filter(Boolean).length + (tagFilter ? 1 : 0);
+  const activeFilters =
+    Object.values(filters).filter(Boolean).length + (tagFilter ? 1 : 0);
 
   const zone = user.timeZone ?? DEFAULT_TIME_ZONE;
   const fromBounds = filters.from ? dayBoundsInZone(filters.from, zone) : null;
   const toBounds = filters.to ? dayBoundsInZone(filters.to, zone) : null;
 
   // Every path is owner-scoped in the query itself, never filtered afterwards.
-  const results = query ? await searchNoteRows(user.id, query, limit + 1) : null;
+  const results = query
+    ? await searchNoteRows(user.id, query, limit + 1)
+    : null;
   const [notes, tags, places, total] = await Promise.all([
     query
       ? Promise.resolve([])
@@ -127,20 +137,23 @@ export default async function NotesPage({
   const baseUrl = process.env.APP_BASE_URL ?? "http://localhost:3100";
   const tagNames = tags.map((t) => t.name);
   const placeNames = places.map((p) => p.label);
-  const filtered = hasFilters({
-    tag: tagFilter,
-    track: filters.track,
-    artist: filters.artist,
-    album: filters.album,
-    place: filters.place,
-  }) || Boolean(filters.from || filters.to);
+  const filtered =
+    hasFilters({
+      tag: tagFilter,
+      track: filters.track,
+      artist: filters.artist,
+      album: filters.album,
+      place: filters.place,
+    }) || Boolean(filters.from || filters.to);
 
   return (
     <main>
       <header className="page-head">
         <div>
           <h1>Your notes</h1>
-          <p className="lede">Private by default. Nothing is shared until you say so.</p>
+          <p className="lede">
+            Private by default. Nothing is shared until you say so.
+          </p>
         </div>
       </header>
 
@@ -159,113 +172,150 @@ export default async function NotesPage({
         `Scrobbles` fetches itself after render.
       */}
       {lastfmConfigured() && user.lastfmUsername && (
-        <Scrobbles username={user.lastfmUsername} />
+        <Panel
+          title="Recently played"
+          summaryNote={`from ${user.lastfmUsername} on Last.fm`}
+          storageKey="scrobbles"
+        >
+          <Scrobbles username={user.lastfmUsername} />
+        </Panel>
       )}
       {/*
         Gated on the *auth* flag, not merely the key: connecting is the only
         thing this prompt offers, so a server that cannot complete an approval
         must not invite one and then dead-end.
       */}
-      {lastfmAuthConfigured() && !user.lastfmUsername && !user.lastfmPromptDismissedAt && (
-        <LastfmPrompt />
-      )}
+      {lastfmAuthConfigured() &&
+        !user.lastfmUsername &&
+        !user.lastfmPromptDismissedAt && <LastfmPrompt />}
 
-      <CaptureForm />
+      {/*
+        Closed by default, and the only panel that is.
+        
+        Writing a note starts with having something to write about — a link you
+        copied, or a play in the strip above. Left open, the form put three
+        fields and a mode switcher between the reader and their own archive on
+        every single visit, which is the wrong default for a page people mostly
+        come to *read*.
+      */}
+      <Panel
+        title="Add a note"
+        summaryNote="paste a link, or type it in"
+        storageKey="capture"
+        defaultOpen={false}
+      >
+        <CaptureForm />
+      </Panel>
 
-      <BrowseBar
-        q={query}
-        sort={sort}
-        direction={direction}
-        filters={filters}
-        active={activeFilters}
-      />
+      {/*
+        The anchor tag and place links jump to, so filtering the list scrolls to
+        the list rather than back to the top of the page. `scroll-margin-top`
+        keeps the heading clear of the sticky header.
+      */}
+      <section id="notes" className="notes-section">
+        <BrowseBar
+          q={query}
+          sort={sort}
+          direction={direction}
+          filters={filters}
+          active={activeFilters}
+        />
 
-      {!query && <TagBar tags={tags} active={tagFilter} />}
+        {!query && <TagBar tags={tags} active={tagFilter} />}
 
-      {results ? (
-        <>
-          <h2>
-            {results.length === 0
-              ? `Nothing matches “${query}”`
-              : `${Math.min(results.length, limit)}${
-                  results.length > limit ? "+" : ""
-                } match${results.length === 1 ? "" : "es"} for “${query}”`}
-          </h2>
-          {results.length === 0 ? (
-            <p className="note">
-              Search covers what you wrote and the track and artist it was about. Try fewer
-              words, or <Link href="/notes">see everything</Link>.
-            </p>
-          ) : (
-            <>
-              {/* The same row the browse list renders, so a note you found is a
+        {results ? (
+          <>
+            <h2>
+              {results.length === 0
+                ? `Nothing matches “${query}”`
+                : `${Math.min(results.length, limit)}${
+                    results.length > limit ? "+" : ""
+                  } match${results.length === 1 ? "" : "es"} for “${query}”`}
+            </h2>
+            {results.length === 0 ? (
+              <p className="note">
+                Search covers what you wrote and the track and artist it was
+                about. Try fewer words, or{" "}
+                <Link href="/notes">see everything</Link>.
+              </p>
+            ) : (
+              <>
+                {/* The same row the browse list renders, so a note you found is a
                   note you can edit, tag, date, place and share — rather than a
                   read-only card that told you it existed and stopped there. */}
-              <ul className="notes">
-                {results.slice(0, limit).map((note) => (
-                  <NoteRow
-                    key={note.id}
-                    note={toNoteRow(note)}
-                    baseUrl={baseUrl}
-                    allTags={tagNames}
-                    allPlaces={placeNames}
-                  />
-                ))}
-              </ul>
-              {results.length > limit && <ShowMore params={params} limit={limit} />}
-            </>
-          )}
-        </>
-      ) : (
-        <>
-          <h2>
-            {notes.length === 0
-              ? tagFilter
-                ? `Nothing tagged “${tagFilter}”`
-                : filtered
-                ? "Nothing matches those filters"
-                : "Nothing yet"
-              : `${total} note${total === 1 ? "" : "s"}${
-                  tagFilter ? ` tagged “${tagFilter}”` : ""
-                }`}
-          </h2>
+                <ul className="notes">
+                  {results.slice(0, limit).map((note) => (
+                    <NoteRow
+                      key={note.id}
+                      note={toNoteRow(note)}
+                      baseUrl={baseUrl}
+                      allTags={tagNames}
+                      allPlaces={placeNames}
+                    />
+                  ))}
+                </ul>
+                {results.length > limit && (
+                  <ShowMore params={params} limit={limit} />
+                )}
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            <h2>
+              {notes.length === 0
+                ? tagFilter
+                  ? `Nothing tagged “${tagFilter}”`
+                  : filtered
+                    ? "Nothing matches those filters"
+                    : "Nothing yet"
+                : `${total} note${total === 1 ? "" : "s"}${
+                    tagFilter ? ` tagged “${tagFilter}”` : ""
+                  }`}
+            </h2>
 
-          {notes.length === 0 ? (
-            <p className="note">
-              {filtered ? (
-                <>
-                  Try widening them, or <Link href="/notes">see everything</Link>.
-                </>
-              ) : (
-                <>
-                  Paste a Spotify or Apple Music link above and write the thing you want to
-                  remember about it.
-                </>
-              )}
-            </p>
-          ) : (
-            <>
-              <ul className="notes">
-                {notes.slice(0, limit).map((note) => (
-                  <NoteRow
-                    key={note.id}
-                    note={toNoteRow(note)}
-                    baseUrl={baseUrl}
-                    allTags={tagNames}
-                    allPlaces={placeNames}
-                  />
-                ))}
-              </ul>
-              {/* The exact count decides this, so the link cannot offer more
+            {notes.length === 0 ? (
+              <p className="note">
+                {filtered ? (
+                  <>
+                    Try widening them, or{" "}
+                    <Link href="/notes">see everything</Link>.
+                  </>
+                ) : (
+                  <>
+                    Paste a Spotify or Apple Music link above and write the
+                    thing you want to remember about it.
+                  </>
+                )}
+              </p>
+            ) : (
+              <>
+                <ul className="notes">
+                  {notes.slice(0, limit).map((note) => (
+                    <NoteRow
+                      key={note.id}
+                      note={toNoteRow(note)}
+                      baseUrl={baseUrl}
+                      allTags={tagNames}
+                      allPlaces={placeNames}
+                    />
+                  ))}
+                </ul>
+                {/* The exact count decides this, so the link cannot offer more
                   than exists — which is how "Show 50 more notes" came to sit
                   under an archive of six. */}
-              {total > limit && (
-                <ShowMore params={params} limit={limit} remaining={total - limit} />
-              )}
-            </>
-          )}
-        </>
-      )}
+                {total > limit && (
+                  <ShowMore
+                    params={params}
+                    limit={limit}
+                    remaining={total - limit}
+                  />
+                )}
+              </>
+            )}
+          </>
+        )}
+      </section>
     </main>
   );
 }
@@ -288,7 +338,8 @@ function ShowMore({
   /** Exact, where it is known, so the label never promises what is not there. */
   remaining?: number;
 }) {
-  const step = remaining === undefined ? PAGE_SIZE : Math.min(remaining, PAGE_SIZE);
+  const step =
+    remaining === undefined ? PAGE_SIZE : Math.min(remaining, PAGE_SIZE);
 
   const next = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {

@@ -447,6 +447,19 @@ model RecordingExternalId {
   isrc                   String?
   musicbrainzRecordingId String? @map("musicbrainz_recording_id") @db.Uuid
 
+  /// A ~30 second preview this provider serves for the track, if it serves one.
+  ///
+  /// Stored rather than fetched per view: a list of fifty notes must not make
+  /// fifty provider calls to decide whether a play button should appear.
+  previewUrl String? @map("preview_url")
+
+  /// When a preview was last looked for, whether or not one was found.
+  ///
+  /// Without this, every track that genuinely has no preview would be queried
+  /// again on every single render — the expensive case being the common one,
+  /// which is exactly backwards. A null here means "never asked".
+  previewCheckedAt DateTime? @map("preview_checked_at") @db.Timestamptz(6)
+
   sourceMetadata Json @default("{}") @map("source_metadata")
 
   firstSeenAt    DateTime  @default(now()) @map("first_seen_at") @db.Timestamptz(6)

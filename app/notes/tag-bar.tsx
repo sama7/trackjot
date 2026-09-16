@@ -35,7 +35,9 @@ export function TagBar({
         {tags.map((t) => (
           <Link
             key={t.name}
-            href={t.name === active ? "/notes" : `/notes?tag=${encodeURIComponent(t.name)}`}
+            /* `#notes` so filtering scrolls to the list rather than back past
+               the listening strip and the capture form to the top of the page. */
+            href={t.name === active ? "/notes#notes" : `/notes?tag=${encodeURIComponent(t.name)}#notes`}
             className={`chip tag${t.name === active ? " active" : ""}`}
           >
             {/* No space between: the chip is a flex row and spaces them with

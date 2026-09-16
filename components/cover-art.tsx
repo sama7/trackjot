@@ -104,6 +104,23 @@ function ArtworkButton({
     setOpen(false);
   }
 
+  /**
+   * Anywhere outside the cover closes it.
+   *
+   * A modal `<dialog>` is sized to its contents, and a click on the backdrop
+   * reports the **dialog element itself** as the target — the `::backdrop`
+   * pseudo-element is not in the DOM and cannot be clicked. So comparing the
+   * target against the dialog distinguishes "outside the picture" from "on the
+   * picture" without wrapping anything in an extra layer.
+   *
+   * Escape already worked, being native. This is the gesture everyone actually
+   * reaches for, and being forced to hit a specific button to dismiss a
+   * full-screen image is the kind of small rudeness people remember.
+   */
+  function onDialogClick(event: React.MouseEvent<HTMLDialogElement>) {
+    if (event.target === dialog.current) hide();
+  }
+
   return (
     <>
       <button
@@ -122,12 +139,26 @@ function ArtworkButton({
         The image is only mounted while open — a list of fifty tracks must not
         eagerly fetch fifty 640px covers for dialogs nobody opened.
       */}
-      <dialog ref={dialog} className="art-dialog" onClose={() => setOpen(false)}>
+      <dialog
+        ref={dialog}
+        className="art-dialog"
+        onClose={() => setOpen(false)}
+        onClick={onDialogClick}
+      >
         {open && (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element -- see above */}
-            <img src={src} alt={title ? `Cover art for ${title}` : "Cover art"} referrerPolicy="no-referrer" />
-            <button type="button" className="art-dialog-close" onClick={hide}>
+            <img
+              src={src}
+              alt={title ? `Cover art for ${title}` : "Cover art"}
+              referrerPolicy="no-referrer"
+            />
+            {/*
+              Focused on open, which is what stops the browser focusing — and
+              outlining — the dialog box itself. Keyboard users land on the one
+              control here instead of on an invisible container.
+            */}
+            <button type="button" className="art-dialog-close" onClick={hide} autoFocus>
               Close
             </button>
           </>

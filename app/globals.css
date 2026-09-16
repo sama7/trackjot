@@ -650,6 +650,164 @@ a.chip.tag.active .note { color: var(--bg); opacity: 0.7; }
   margin: 0.35rem 0 0;
 }
 
+/* ---- track preview ---- */
+
+/**
+ * A miniplayer that sits in a row of links without shouting.
+ *
+ * The note is the thing on this card; the preview is an aside. So the controls
+ * are text-sized and quiet, and the progress bar is a hairline rather than a
+ * scrubber — thirty seconds does not need a seek handle, it needs to show that
+ * something is happening.
+ */
+.preview-player {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.preview-toggle,
+.preview-step {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  /* Digits in "+5s" / "−5s" line up, so the pair does not jitter as it is
+     pressed. */
+  font-variant-numeric: tabular-nums;
+}
+.preview-toggle { min-width: 4.2rem; }
+.preview-toggle:hover,
+.preview-step:hover { border-color: var(--accent); color: var(--accent); }
+
+.preview-bar {
+  display: inline-block;
+  width: 3.5rem;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.preview-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  /* Matches the ~250ms cadence of `timeupdate`, so the bar glides rather than
+     stepping. */
+  transition: width 250ms linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview-bar-fill { transition: none; }
+}
+
+.preview-note { margin: 0; }
+
+/* Touch targets: these are the smallest controls on the card. */
+@media (pointer: coarse) {
+  .preview-toggle,
+  .preview-step { min-height: 2rem; }
+}
+
+/* ---- collapsible page sections ---- */
+
+/**
+ * A tool that folds away, so the archive is not permanently below the fold.
+ *
+ * Styled as a bordered card rather than a bare disclosure triangle: these carry
+ * whole forms, and an unbounded `<details>` in a column of other content gives
+ * no sense of where the section ends.
+ */
+details.panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 0 0 1.25rem;
+  background: var(--bg);
+}
+
+details.panel > summary {
+  display: grid;
+  /* Chevron, then everything else — so a wrapped note lines up with the title
+     above it rather than starting back under the arrow. */
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.9rem;
+  cursor: pointer;
+  /**
+   * The UA marker is removed **because `display: flex` already removed it**.
+   *
+   * A `<summary>` only draws its disclosure triangle while it is a `list-item`;
+   * giving it any other display quietly takes the triangle away, which left
+   * these panels looking like plain headings with no hint that they open. Since
+   * the layout needs flex, the marker is drawn below instead of wished for.
+   */
+  list-style: none;
+}
+details.panel > summary::-webkit-details-marker { display: none; }
+
+/* A chevron that points at where the content will appear: right when closed,
+   down when open. Two borders on an empty box, so there is no image to load
+   and it inherits a themed colour for free. */
+details.panel > summary::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform 150ms ease;
+  /* Optically centred: a rotated square hangs low against text. */
+  margin-block-start: -0.15rem;
+}
+details.panel[open] > summary::before { transform: rotate(45deg); }
+@media (prefers-reduced-motion: reduce) {
+  details.panel > summary::before { transition: none; }
+}
+
+.panel-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.5rem;
+  min-width: 0;
+}
+
+.panel-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+/* A note beside a title is part of that line, not a paragraph under it — the
+   same block margin that kept knocking labels out of rows. */
+.panel-note { margin: 0; }
+
+details.panel > .panel-body {
+  padding: 0 0.9rem 0.9rem;
+  /* The border reads as the section's edge; a rule above the body says where
+     the heading stops without adding another box. */
+  border-top: 1px solid var(--line);
+  padding-top: 0.9rem;
+}
+details.panel[open] > summary { padding-bottom: 0.7rem; }
+
+/* The strip inside a panel no longer needs its own outer spacing. */
+details.panel .scrobbles { margin: 0; }
+.scrobbles-source { margin: 0 0 0.5rem; }
+
+/**
+ * Where a tag or place link lands.
+ *
+ * Filtering used to scroll to the very top of the page, past the listening
+ * strip and the capture form, so choosing "qawwali" showed you everything
+ * except the notes you had just asked for. The links carry `#notes`; this keeps
+ * the heading clear of the sticky site header when they arrive.
+ */
+.notes-section { scroll-margin-top: 1rem; }
+
 /* ---- csv import ---- */
 
 details.csv-import {
@@ -1081,6 +1239,28 @@ button.cover-button {
   flex-shrink: 0;
 }
 
+/**
+ * The opened cover, and the two ways it used to be wrong.
+ *
+ * **It spilled off the screen in landscape.** The box was capped at `92vh`
+ * while the image inside it was capped only in width, so on a phone turned
+ * sideways — 402px tall — a square cover rendered at its 640px width and ran
+ * straight off the bottom, taking the Close button with it. A cap on the
+ * container does nothing if the content is free to overflow it.
+ *
+ * A flex column with `min-height: 0` on the image is what actually fits it: the
+ * image is allowed to shrink below its intrinsic size, and the button keeps its
+ * own row rather than being pushed out of the viewport. `object-fit: contain`
+ * means shrinking never distorts the cover.
+ *
+ * **It had a blue ring round it.** `showModal()` focuses the dialog itself when
+ * nothing inside asks for focus, and the UA draws its focus ring on that box.
+ * The Close button now takes focus on open, so the ring lands on a real
+ * control; this removes the one that was drawn on the container. Suppressed
+ * only for this element, never globally — a focus ring nobody can see is an
+ * accessibility bug, and the only reason it is safe here is that focus has
+ * somewhere better to be.
+ */
 dialog.art-dialog {
   border: none;
   background: transparent;
@@ -1088,7 +1268,24 @@ dialog.art-dialog {
   max-width: min(92vw, 40rem);
   max-height: 92vh;
   overflow: visible;
+  flex-direction: column;
+  align-items: center;
 }
+/* An author `display` beats the UA's `dialog:not([open]) { display: none }`,
+   so a closed dialog has to be hidden explicitly — the same trap the collapsed
+   `<details>` panels fell into. */
+dialog.art-dialog[open] { display: flex; }
+dialog.art-dialog:not([open]) { display: none; }
+dialog.art-dialog:focus,
+dialog.art-dialog:focus-visible { outline: none; }
+dialog.art-dialog img {
+  max-width: 100%;
+  /* `min-height: 0` overrides the flex default of `auto`, which is what lets a
+     replaced element shrink below its natural height instead of overflowing. */
+  min-height: 0;
+  object-fit: contain;
+}
+/* The backdrop is the click target for "close": see `onDialogClick`. */
 dialog.art-dialog::backdrop { background: rgb(0 0 0 / 78%); }
 dialog.art-dialog img {
   display: block;
@@ -1097,8 +1294,9 @@ dialog.art-dialog img {
   border-radius: 8px;
 }
 .art-dialog-close {
-  margin: 0.75rem auto 0;
-  display: block;
+  margin: 0.75rem 0 0;
+  /* Never squeezed away when the image is tall: the picture yields first. */
+  flex: 0 0 auto;
 }
 
 /* ---- confirmation dialog ---- */

@@ -14,10 +14,29 @@ import { expect, type Page } from "@playwright/test";
  * note/i)` matched both the note textarea and the search box ("Search your
  * notes"), which is the sort of ambiguity that grows as a page does.
  */
+/**
+ * Expand the "Add a note" panel if it is folded.
+ *
+ * It is collapsed by default — the notes page is mostly read, not written to —
+ * so every helper that types into the capture form has to open it first.
+ * Idempotent, because some tests arrive with it already open: clicking a
+ * `<summary>` toggles, so checking before clicking is the difference between
+ * opening it and closing it.
+ */
+export async function openCapture(page: Page): Promise<void> {
+  const panel = page.locator("details.panel").filter({ hasText: "Add a note" }).first();
+  await expect(panel).toBeAttached({ timeout: 30_000 });
+  if (!(await panel.evaluate((element) => (element as HTMLDetailsElement).open))) {
+    await panel.locator("summary").click();
+  }
+  await expect(panel.locator(".panel-body")).toBeVisible({ timeout: 10_000 });
+}
+
 export async function writeNote(
   page: Page,
   note: { link: string; body: string; title: string; artist: string },
 ): Promise<void> {
+  await openCapture(page);
   await page.getByRole("tab", { name: /type it in/i }).click();
 
   await page.locator("#title").fill(note.title);
@@ -38,6 +57,7 @@ export async function writeNoteFromLink(
   page: Page,
   note: { link: string; body: string },
 ): Promise<void> {
+  await openCapture(page);
   await page.getByRole("tab", { name: /paste a link/i }).click();
   await page.locator("#link").fill(note.link);
   await page.getByRole("button", { name: /look up/i }).click();

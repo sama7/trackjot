@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { Visibility } from "@prisma/client";
 import { ConfirmButton } from "@/components/confirm-button";
 import { CopyButton } from "@/components/copy-button";
+import { PreviewPlayer } from "@/components/preview-player";
 import { CoverArt } from "@/components/cover-art";
 import { describeTimestamps } from "@/lib/format-date";
 import type { NoteRowData } from "@/lib/notes/list";
@@ -13,6 +14,7 @@ import { TagInput } from "./tag-input";
 import { setNoteTagsAction } from "./tag-actions";
 import {
   deleteNoteAction,
+  previewForNoteAction,
   setNoteVisibilityAction,
   setNoteVisibilityFormAction,
   updateNoteAction,
@@ -118,7 +120,10 @@ export function NoteRow({
             {/* Clickable for the same reason a tag is: a place is only worth
                 recording if it leads back to everything else that happened
                 there. */}
-            <Link href={`/notes?place=${encodeURIComponent(note.placeLabel)}`} className="place">
+            <Link
+              href={`/notes?place=${encodeURIComponent(note.placeLabel)}#notes`}
+              className="place"
+            >
               {note.placeLabel}
             </Link>{" "}
             ·{" "}
@@ -186,6 +191,13 @@ export function NoteRow({
           <a href={note.providerUrl} target="_blank" rel="noopener noreferrer">
             Open in {note.providerName}
           </a>
+        )}
+
+        {/* Only for notes about a track. A note about a collection has no one
+            recording to preview, and offering a play button there would be a
+            promise about something that does not exist. */}
+        {!note.collection && (
+          <PreviewPlayer noteId={note.id} title={note.title} resolve={previewForNoteAction} />
         )}
 
         <ConfirmButton
