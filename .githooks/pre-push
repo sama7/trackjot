@@ -15,6 +15,40 @@ set -euo pipefail
 
 echo "pre-push: verifying before anything leaves this machine…"
 
+# ---------------------------------------------------------------------------
+# Find a Node that can actually run.
+#
+# A hook runs with git's environment, not a login shell's — so it gets whatever
+# `node` is first on a bare PATH, which is not necessarily the one the project
+# is developed against. On 2026-09-15 a macOS upgrade removed Rosetta, and the
+# `node` at /usr/local/bin became an x86 binary that no longer executes. The
+# hook then reported "typecheck failed", which was true and completely
+# misleading: nothing was wrong with the code.
+#
+# So the interpreter is checked before the code is, and a broken one is named
+# as a broken one.
+# ---------------------------------------------------------------------------
+if ! node -v >/dev/null 2>&1; then
+  wanted="$(tr -d 'v \n' < .nvmrc 2>/dev/null || true)"
+  for candidate in "$HOME/.nvm/versions/node/v$wanted".*/bin "$HOME/.nvm/versions/node"/*/bin; do
+    if [ -x "$candidate/node" ] && "$candidate/node" -v >/dev/null 2>&1; then
+      PATH="$candidate:$PATH"
+      export PATH
+      echo "pre-push: using $("$candidate/node" -v) from $candidate"
+      break
+    fi
+  done
+fi
+
+if ! node -v >/dev/null 2>&1; then
+  echo ""
+  echo "✖ pre-push blocked: no working 'node' on PATH."
+  echo "  The one git found cannot execute — on Apple silicon this is usually an"
+  echo "  x86 build left behind after an OS upgrade removed Rosetta."
+  echo "  Install the version in .nvmrc and make sure it is ahead of it on PATH."
+  exit 1
+fi
+
 fail() {
   echo ""
   echo "✖ pre-push blocked: $1 failed."
