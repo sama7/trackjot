@@ -650,6 +650,64 @@ a.chip.tag.active .note { color: var(--bg); opacity: 0.7; }
   margin: 0.35rem 0 0;
 }
 
+/**
+ * Where an underline earns its place, and where it is just noise.
+ *
+ * Underlining every link is an accessibility rule with a real reason behind it:
+ * in running text, colour alone must not be the only thing marking a link
+ * (WCAG 1.4.1), because a reader who cannot separate those colours would have
+ * nothing left to go on. So **links inside prose keep their underline** — the
+ * note body, the ledes, the About page.
+ *
+ * A row where *everything* is a control is a different situation. There is no
+ * sentence to be picked out of, position already says these are actions, and
+ * four underlined phrases in a row read as clutter. Those lose the underline
+ * and get it back on hover and focus, so the affordance is still discoverable
+ * and the keyboard ring is untouched.
+ */
+.row.actions a,
+.row.actions button.linkish,
+.site-nav a,
+.site-nav button.linkish,
+.tag-admin button.linkish,
+.show-more a,
+.scrobbles-source a {
+  text-decoration: none;
+}
+.row.actions a:hover,
+.row.actions a:focus-visible,
+.row.actions button.linkish:hover,
+.row.actions button.linkish:focus-visible,
+.site-nav a:hover,
+.site-nav button.linkish:hover,
+.tag-admin button.linkish:hover,
+.show-more a:hover,
+.scrobbles-source a:hover {
+  text-decoration: underline;
+}
+
+/**
+ * One type size per action row.
+ *
+ * `button.linkish` sets 0.85rem and an `<a>` inherits 1rem, so a row reading
+ * "Rename · Open in Spotify · Refresh from source" mixed two sizes — the two
+ * buttons noticeably smaller than the link between them. The row states the
+ * size and both kinds of control inherit it.
+ */
+.row.actions {
+  font-size: 0.9rem;
+}
+.row.actions a,
+.row.actions button.linkish,
+.row.actions button.compact {
+  font-size: inherit;
+}
+
+.username-current {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
 /* ---- track preview ---- */
 
 /**
@@ -675,6 +733,10 @@ a.chip.tag.active .note { color: var(--bg); opacity: 0.7; }
   justify-content: center;
   width: 2rem;
   height: 2rem;
+  /* Both axes pinned, so a `min-height` elsewhere cannot turn a circle into a
+     pill — which is exactly what happened. */
+  min-height: 2rem;
+  flex: 0 0 auto;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -686,17 +748,20 @@ a.chip.tag.active .note { color: var(--bg); opacity: 0.7; }
 .preview-step:hover { border-color: var(--accent); color: var(--accent); }
 
 .preview-icon {
-  width: 1.15rem;
-  height: 1.15rem;
+  width: 1.3rem;
+  height: 1.3rem;
   display: block;
 }
 /* The step size lives inside the circular arrow, so it has to be small,
    bold and centred rather than inheriting body type. */
+/* 11 units against a 24-unit box: large enough to read on a phone, and far
+   enough inside the arc not to touch it. It was 8.5 and did both badly. */
 .preview-icon-step {
-  font-size: 8.5px;
+  font-size: 11px;
   font-weight: 700;
   fill: currentColor;
   stroke: none;
+  font-variant-numeric: tabular-nums;
 }
 
 .preview-spinner { animation: preview-spin 900ms linear infinite; }
@@ -730,11 +795,21 @@ a.chip.tag.active .note { color: var(--bg); opacity: 0.7; }
 .preview-note { margin: 0; }
 
 /* Touch targets: these are the smallest controls on the card. */
+/**
+ * Circles, not ovals — and `min-height` is why they were ovals.
+ *
+ * A later touch rule gives every `button` a `min-height` of 2.75rem. These were
+ * 2.4rem square, so the minimum stretched them vertically and left the width
+ * alone: a 38x44 pill around a play triangle. Stating both axes at the same
+ * value *and* pinning `min-height` to it means nothing downstream can make one
+ * axis grow without the other.
+ */
 @media (pointer: coarse) {
   .preview-toggle,
   .preview-step {
-    width: 2.4rem;
-    height: 2.4rem;
+    width: 2.75rem;
+    height: 2.75rem;
+    min-height: 2.75rem;
   }
 }
 
@@ -776,8 +851,23 @@ details.panel > summary {
   grid-template-columns: auto 1fr;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.7rem 0.9rem;
+  padding: 0.9rem;
   cursor: pointer;
+  /**
+   * Trim the line box down to the text you can actually see.
+   *
+   * A line box reserves the font's full ascent and descent, and those are not
+   * symmetric around the part of a glyph that has ink — so "centred" padding
+   * put roughly 18px above the cap and 14px below the baseline, and the heading
+   * sat visibly low in its own box. `text-box` trims to cap-height and the
+   * alphabetic baseline, which is the thing the eye reads as the text's extent,
+   * so symmetric padding now actually looks symmetric. Padding went up to keep
+   * the box the height it was before the trim.
+   *
+   * Ignored by browsers that do not support it, which land back on the old
+   * behaviour rather than on anything broken.
+   */
+  text-box: trim-both cap alphabetic;
   /**
    * The UA marker is removed **because `display: flex` already removed it**.
    *
@@ -857,7 +947,15 @@ details.csv-import {
   border: 1px solid var(--line);
   border-radius: 6px;
 }
-details.csv-import summary { font-size: 0.95rem; color: var(--fg); font-weight: 600; }
+details.csv-import summary {
+  font-size: 0.95rem;
+  color: var(--fg);
+  font-weight: 600;
+  /* Same reason as the panel summaries above: a line box is not centred on the
+     ink inside it, so the heading sat low in its own box. */
+  text-box: trim-both cap alphabetic;
+  padding-block: 0.2rem;
+}
 details.csv-import input[type="file"] { border: none; padding: 0; }
 
 /* ---- accessibility ---- */
@@ -1586,6 +1684,9 @@ a.download:hover { background: var(--line); }
 
 /* Clerk renders its own <button> inside these wrappers; we style the wrapper's
    child rather than passing a custom child, which Clerk rejects. */
+/* Sits among the nav links and should read as one of them. It was the only
+   underlined item in that row, which made it look like the odd one out rather
+   than the deliberate one. */
 .nav-signout button {
   background: none;
   border: none;
@@ -1593,9 +1694,13 @@ a.download:hover { background: var(--line); }
   color: var(--accent);
   font: inherit;
   font-size: 0.9rem;
-  text-decoration: underline;
+  text-decoration: none;
   text-underline-offset: 0.15em;
   cursor: pointer;
+}
+.nav-signout button:hover,
+.nav-signout button:focus-visible {
+  text-decoration: underline;
 }
 
 /* ---- a shared note, read by someone with no account ---- */

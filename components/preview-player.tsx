@@ -39,14 +39,60 @@ const STEP_SECONDS = 5;
  * subscription; there is exactly one speaker and this models that.
  */
 let audible: HTMLAudioElement | null = null;
+let audibleId: string | null = null;
 
-function claimAudio(element: HTMLAudioElement) {
+/**
+ * How a player is told to put itself away.
+ *
+ * Pausing the previous track was not enough: it stayed expanded, so a list
+ * ended up with several sets of transport controls, only one of them live. The
+ * previous player now goes all the way back to a single play button, which is
+ * both tidier and honest — a collapsed player is one that is not playing.
+ */
+const collapsers = new Map<string, () => void>();
+
+function claimAudio(id: string, element: HTMLAudioElement) {
+  if (audibleId && audibleId !== id) collapsers.get(audibleId)?.();
   if (audible && audible !== element) audible.pause();
   audible = element;
+  audibleId = id;
 }
 
-function releaseAudio(element: HTMLAudioElement) {
+function releaseAudio(id: string, element: HTMLAudioElement) {
   if (audible === element) audible = null;
+  if (audibleId === id) audibleId = null;
+}
+
+/**
+ * What the phone's lock screen and Control Centre show.
+ *
+ * Without this, iOS falls back to the document title, so a preview announced
+ * itself as "Your notes · TrackJot" — the page, not the music. The track and
+ * the artist are what someone glancing at a lock screen wants; TrackJot goes in
+ * the album slot, which is where iOS puts the quietest of the three lines.
+ *
+ * The seek handlers matter too: without them the system's skip buttons are
+ * dead, and they are the only transport controls available from a locked phone.
+ */
+function describeToSystem(
+  track: { title: string; artist: string | null; artwork: string | null },
+  onSeek: (by: number) => void,
+  step: number,
+) {
+  if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: track.title,
+      artist: track.artist ?? "",
+      album: "TrackJot",
+      artwork: track.artwork ? [{ src: track.artwork }] : [],
+    });
+    navigator.mediaSession.setActionHandler("seekbackward", () => onSeek(-step));
+    navigator.mediaSession.setActionHandler("seekforward", () => onSeek(step));
+  } catch {
+    // An older browser, or one that refuses a handler. The in-page controls
+    // are unaffected, which is the part that has to work.
+  }
 }
 
 type State =
@@ -59,11 +105,16 @@ type State =
 export function PreviewPlayer({
   noteId,
   title,
+  artist,
+  artwork,
   resolve,
 }: {
   noteId: string;
   /** Named in the controls, so a screen reader hears which track they drive. */
   title: string;
+  /** Shown on the lock screen, where "who is this" is the second question. */
+  artist?: string | null;
+  artwork?: string | null;
   resolve: (noteId: string) => Promise<{ url: string | null }>;
 }) {
   const [state, setState] = useState<State>({ kind: "idle" });
@@ -80,10 +131,26 @@ export function PreviewPlayer({
     return () => {
       if (element) {
         element.pause();
-        releaseAudio(element);
+        releaseAudio(noteId, element);
       }
     };
-  }, [state.kind]);
+  }, [state.kind, noteId]);
+
+  /**
+   * Register how this player collapses, so whoever plays next can fold it away.
+   * Keyed by note id, which is unique on the page and stable across renders.
+   */
+  useEffect(() => {
+    collapsers.set(noteId, () => {
+      audio.current?.pause();
+      setPlaying(false);
+      setPosition(0);
+      setState({ kind: "idle" });
+    });
+    return () => {
+      collapsers.delete(noteId);
+    };
+  }, [noteId]);
 
   async function start() {
     if (state.kind === "loading") return;
@@ -157,12 +224,13 @@ export function PreviewPlayer({
         src={state.url}
         preload="auto"
         onPlay={(event) => {
-          claimAudio(event.currentTarget);
+          claimAudio(noteId, event.currentTarget);
           setPlaying(true);
+          describeToSystem({ title, artist: artist ?? null, artwork: artwork ?? null }, skip, STEP_SECONDS);
         }}
         onPause={() => setPlaying(false)}
         onEnded={(event) => {
-          releaseAudio(event.currentTarget);
+          releaseAudio(noteId, event.currentTarget);
           setPlaying(false);
           setPosition(0);
         }}
@@ -255,19 +323,31 @@ function PauseIcon() {
   );
 }
 
-/** A circular arrow turning back on itself, with the step size inside it. */
+/**
+ * A circular arrow turning back on itself, with the step size inside it.
+ *
+ * Geometry worth stating, because the first attempt got it wrong: the arc is a
+ * circle of radius 7.5 centred at (12, 12.5), so the digit's optical centre is
+ * that point — not the middle of the viewBox. The digit is set at 11 units
+ * against a 24-unit box, which leaves roughly 3.5 units between its cap and the
+ * arc. It was 8.5 units before, sitting low enough to touch the stroke and too
+ * small to read on a phone at all.
+ *
+ * The arrowhead is a separate filled triangle rather than a stroked corner, so
+ * it stays crisp at 18px and mirrors exactly between back and forward.
+ */
 function Replay5() {
   return (
     <svg className="preview-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path
-        d="M12 5V1.5L7.2 6 12 10.5V7a6.5 6.5 0 1 1-6.5 6.5"
+        d="M12 5A7.5 7.5 0 1 1 9.43 5.45"
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.9"
+        strokeWidth="1.8"
         strokeLinecap="round"
-        strokeLinejoin="round"
       />
-      <text className="preview-icon-step" x="12.4" y="17.2" textAnchor="middle">
+      <path d="M12.6 1.4v7.2L7.4 5z" fill="currentColor" />
+      <text className="preview-icon-step" x="12" y="16.5" textAnchor="middle">
         5
       </text>
     </svg>
@@ -279,14 +359,14 @@ function Forward5() {
   return (
     <svg className="preview-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path
-        d="M12 5V1.5L16.8 6 12 10.5V7a6.5 6.5 0 1 0 6.5 6.5"
+        d="M12 5A7.5 7.5 0 1 0 14.57 5.45"
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.9"
+        strokeWidth="1.8"
         strokeLinecap="round"
-        strokeLinejoin="round"
       />
-      <text className="preview-icon-step" x="11.6" y="17.2" textAnchor="middle">
+      <path d="M11.4 1.4v7.2L16.6 5z" fill="currentColor" />
+      <text className="preview-icon-step" x="12" y="16.5" textAnchor="middle">
         5
       </text>
     </svg>

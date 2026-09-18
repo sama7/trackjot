@@ -205,7 +205,13 @@ export function NoteRow({
           promise about something that does not exist. */}
       {!note.collection && (
         <div className="row actions note-preview-row">
-          <PreviewPlayer noteId={note.id} title={note.title} resolve={previewForNoteAction} />
+          <PreviewPlayer
+            noteId={note.id}
+            title={note.title}
+            artist={note.artist}
+            artwork={note.artworkUrl ?? note.artworkThumbUrl}
+            resolve={previewForNoteAction}
+          />
         </div>
       )}
 
