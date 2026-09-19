@@ -52,7 +52,20 @@ let audibleId: string | null = null;
 const collapsers = new Map<string, () => void>();
 
 function claimAudio(id: string, element: HTMLAudioElement) {
-  if (audibleId && audibleId !== id) collapsers.get(audibleId)?.();
+  /**
+   * Fold away **every** other player, not just the one that was audible.
+   *
+   * The first version collapsed `audibleId`, and `audibleId` is cleared when a
+   * clip reaches its end. So listening to a preview all the way through and
+   * then starting another left the finished one sitting there fully expanded,
+   * with a progress bar showing a track that had stopped — which is exactly
+   * what happened on the phone. Whether the previous player was still making
+   * noise is not the question; whether it is still the one you are listening to
+   * is, and after this call it is not.
+   */
+  for (const [otherId, collapse] of collapsers) {
+    if (otherId !== id) collapse();
+  }
   if (audible && audible !== element) audible.pause();
   audible = element;
   audibleId = id;
@@ -81,11 +94,26 @@ function describeToSystem(
 ) {
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
   try {
+    /**
+     * TrackJot goes on the artist line, because iOS only shows two.
+     *
+     * The lock screen renders the title and the artist and stops; `album` is
+     * not drawn there, so naming the app in that field left the sheet looking
+     * like it came from nowhere in particular. Appending it to the artist is
+     * the only slot that is actually read out, and it answers the question a
+     * glance at a lock screen asks — what is this, and where is it coming from.
+     */
+    const credit = track.artist ? `${track.artist} · TrackJot` : "TrackJot";
+
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
-      artist: track.artist ?? "",
+      artist: credit,
       album: "TrackJot",
-      artwork: track.artwork ? [{ src: track.artwork }] : [],
+      // Sizes stated so the system picks a rendition instead of guessing; the
+      // provider CDNs serve squares, which is what every surface wants.
+      artwork: track.artwork
+        ? [{ src: track.artwork, sizes: "512x512", type: "image/jpeg" }]
+        : [],
     });
     navigator.mediaSession.setActionHandler("seekbackward", () => onSeek(-step));
     navigator.mediaSession.setActionHandler("seekforward", () => onSeek(step));
@@ -115,13 +143,14 @@ export function PreviewPlayer({
   /** Shown on the lock screen, where "who is this" is the second question. */
   artist?: string | null;
   artwork?: string | null;
-  resolve: (noteId: string) => Promise<{ url: string | null }>;
+  resolve: (noteId: string, force?: boolean) => Promise<{ url: string | null }>;
 }) {
   const [state, setState] = useState<State>({ kind: "idle" });
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const audio = useRef<HTMLAudioElement>(null);
+  const toggle_ = useRef<HTMLButtonElement>(null);
 
   // A note can be deleted, or the list re-rendered by a filter, while its
   // preview is still playing — and audio from a card that is no longer on
@@ -152,11 +181,11 @@ export function PreviewPlayer({
     };
   }, [noteId]);
 
-  async function start() {
+  async function start(force = false) {
     if (state.kind === "loading") return;
     setState({ kind: "loading" });
     try {
-      const { url } = await resolve(noteId);
+      const { url } = await resolve(noteId, force);
       setState(url ? { kind: "ready", url } : { kind: "none" });
     } catch {
       setState({ kind: "error", message: "Preview didn’t load" });
@@ -168,6 +197,15 @@ export function PreviewPlayer({
   useEffect(() => {
     if (state.kind !== "ready") return;
     void audio.current?.play().catch(() => setPlaying(false));
+    /**
+     * Move focus onto play/pause.
+     *
+     * The button that was pressed is replaced by three, and the browser hands
+     * focus to whatever lands first in the DOM — which is "back 5 seconds", so
+     * the ring appeared on a skip control nobody asked for. Play/pause is the
+     * continuation of the press that got here.
+     */
+    toggle_.current?.focus({ preventScroll: true });
   }, [state]);
 
   function toggle() {
@@ -192,7 +230,10 @@ export function PreviewPlayer({
   if (state.kind === "error") {
     return (
       <span className="preview-player">
-        <button type="button" className="linkish" onClick={start}>
+        {/* Forced, because the usual reason a link fails to play is that the
+            cached one has gone stale — handing back the same URL would fail
+            exactly the same way. */}
+        <button type="button" className="linkish" onClick={() => start(true)}>
           {state.message} — retry
         </button>
       </span>
@@ -205,7 +246,7 @@ export function PreviewPlayer({
         <button
           type="button"
           className="preview-toggle"
-          onClick={start}
+          onClick={() => start()}
           disabled={state.kind === "loading"}
           aria-label={`Play a preview of ${title}`}
         >
@@ -258,6 +299,7 @@ export function PreviewPlayer({
       </button>
 
       <button
+        ref={toggle_}
         type="button"
         className="preview-toggle"
         onClick={toggle}
@@ -326,28 +368,29 @@ function PauseIcon() {
 /**
  * A circular arrow turning back on itself, with the step size inside it.
  *
- * Geometry worth stating, because the first attempt got it wrong: the arc is a
- * circle of radius 7.5 centred at (12, 12.5), so the digit's optical centre is
- * that point — not the middle of the viewBox. The digit is set at 11 units
- * against a 24-unit box, which leaves roughly 3.5 units between its cap and the
- * arc. It was 8.5 units before, sitting low enough to touch the stroke and too
- * small to read on a phone at all.
+ * Built to the same idea as the system's own skip buttons: a ring that fills
+ * the icon, a clear break at the top between the arrowhead and the tail it is
+ * chasing, and a numeral big enough to read at a glance rather than a detail
+ * you have to look for.
  *
- * The arrowhead is a separate filled triangle rather than a stroked corner, so
- * it stays crisp at 18px and mirrors exactly between back and forward.
+ * Geometry, since two earlier attempts got it wrong: the ring is centred at
+ * (12, 13) with radius 7.8, so the numeral's optical centre is that point and
+ * not the middle of the viewBox. The arc runs from -60° clockwise the long way
+ * to -120°, which leaves a 60° gap across the top; the head sits at one side of
+ * that gap and the tail at the other, so the two never touch.
  */
 function Replay5() {
   return (
     <svg className="preview-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path
-        d="M12 5A7.5 7.5 0 1 1 9.43 5.45"
+        d="M15.9 6.25A7.8 7.8 0 1 1 8.1 6.25"
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.8"
+        strokeWidth="2"
         strokeLinecap="round"
       />
-      <path d="M12.6 1.4v7.2L7.4 5z" fill="currentColor" />
-      <text className="preview-icon-step" x="12" y="16.5" textAnchor="middle">
+      <path d="M9.6 3.1v6.3L4.9 6.25z" fill="currentColor" />
+      <text className="preview-icon-step" x="12" y="17.6" textAnchor="middle">
         5
       </text>
     </svg>
@@ -359,14 +402,14 @@ function Forward5() {
   return (
     <svg className="preview-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path
-        d="M12 5A7.5 7.5 0 1 0 14.57 5.45"
+        d="M8.1 6.25A7.8 7.8 0 1 0 15.9 6.25"
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.8"
+        strokeWidth="2"
         strokeLinecap="round"
       />
-      <path d="M11.4 1.4v7.2L16.6 5z" fill="currentColor" />
-      <text className="preview-icon-step" x="12" y="16.5" textAnchor="middle">
+      <path d="M14.4 3.1v6.3l4.7-3.15z" fill="currentColor" />
+      <text className="preview-icon-step" x="12" y="17.6" textAnchor="middle">
         5
       </text>
     </svg>

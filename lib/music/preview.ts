@@ -59,6 +59,29 @@ const TIMEOUT_MS = 6000;
 const RECHECK_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
+ * Deezer's preview links **rotate**, and caching one is a bug.
+ *
+ * This was found the hard way: two tracks showed "Preview wouldn't play" on a
+ * phone, and the two stored Deezer URLs — written two days earlier — returned
+ * **403 with an HTML body**, while re-resolving the same ISRC produced a
+ * *different* URL that fetched 206 immediately. Apple's links, by contrast,
+ * were all still good after the same two days.
+ *
+ * So a Deezer URL is a cache entry with an expiry, not a fact about the track.
+ * The host is what marks it, because the host is what tells us whose rules the
+ * link follows.
+ */
+const EPHEMERAL_TTL_MS = 30 * 60 * 1000;
+
+function isEphemeral(url: string): boolean {
+  try {
+    return new URL(url).hostname.endsWith("dzcdn.net");
+  } catch {
+    return false;
+  }
+}
+
+/**
  * A URL is only stored if it is https and on a host we expect.
  *
  * This value ends up in an `<audio src>`, so an unchecked one from a third
@@ -133,6 +156,8 @@ export async function deezerPreviewByIsrc(
 export async function previewForRecording(
   recordingId: string,
   fetchImpl: typeof fetch = fetch,
+  /** Skip the cache — used by the retry after a link failed to play. */
+  force = false,
 ): Promise<string | null> {
   const rows = await prisma.recordingExternalId.findMany({
     where: { recordingId },
@@ -146,12 +171,31 @@ export async function previewForRecording(
     },
   });
 
+  /**
+   * A stored link is only reused when it is one that keeps working.
+   *
+   * Apple's are stable and worth caching. Deezer's rotate, so a cached one is
+   * returned only inside a short window — long enough that scrolling a list and
+   * pressing play twice does not make two lookups, short enough that a link is
+   * never served after it has gone stale.
+   */
   const stored = rows.find((r) => r.previewUrl);
-  if (stored?.previewUrl) return safePreview(stored.previewUrl);
+  if (!force && stored?.previewUrl) {
+    const fresh =
+      !isEphemeral(stored.previewUrl) ||
+      (stored.previewCheckedAt !== null &&
+        Date.now() - stored.previewCheckedAt.getTime() < EPHEMERAL_TTL_MS);
+    if (fresh) return safePreview(stored.previewUrl);
+  }
 
-  const freshlyChecked = rows.some(
-    (r) => r.previewCheckedAt && Date.now() - r.previewCheckedAt.getTime() < RECHECK_AFTER_MS,
-  );
+  const freshlyChecked =
+    !force &&
+    rows.some(
+      (r) =>
+        r.previewCheckedAt &&
+        !r.previewUrl &&
+        Date.now() - r.previewCheckedAt.getTime() < RECHECK_AFTER_MS,
+    );
   if (rows.length === 0 || freshlyChecked) return null;
 
   // Apple first: it is this catalog's most common anchor, and its answer is

@@ -206,7 +206,12 @@ function isVisibility(value: string): value is Visibility {
  * whether a stranger's note exists. A note that is not yours returns null,
  * exactly as a note with no preview does.
  */
-export async function previewForNoteAction(noteId: string): Promise<{ url: string | null }> {
+export async function previewForNoteAction(
+  noteId: string,
+  /** Set by the retry after a link failed to play, so a stale one is not
+   *  handed back a second time. */
+  force = false,
+): Promise<{ url: string | null }> {
   const user = await requireUser();
 
   const note = await prisma.note.findFirst({
@@ -215,5 +220,5 @@ export async function previewForNoteAction(noteId: string): Promise<{ url: strin
   });
   if (!note?.recordingId) return { url: null };
 
-  return { url: await previewForRecording(note.recordingId) };
+  return { url: await previewForRecording(note.recordingId, fetch, force) };
 }
