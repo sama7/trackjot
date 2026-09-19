@@ -44,6 +44,21 @@ afterAll(async () => {
  * changed, or it means nothing — so this pins down exactly which operations
  * count.
  */
+/**
+ * Put a measurable gap between two writes.
+ *
+ * `updated_at` has millisecond resolution and these operations take less than
+ * that, so "the edit came after the create" was true in fact and not always
+ * true in the timestamp — the assertion failed intermittently, and did so more
+ * often once the machine got faster. Waiting a couple of milliseconds makes the
+ * ordering observable without weakening what is being asserted: the alternative
+ * was `toBeGreaterThanOrEqual`, which would also pass if the field were never
+ * touched at all, and that is the whole thing under test.
+ */
+async function aMomentLater(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 5));
+}
+
 describe("what counts as editing a note", () => {
   async function aNote() {
     const user = await makeUser();
@@ -73,6 +88,7 @@ describe("what counts as editing a note", () => {
 
   it("changing the body does", async () => {
     const { user, note } = await aNote();
+    await aMomentLater();
     const after = await updateNote(user.id, note.id, { body: "second" });
     expect(after.updatedAt.getTime()).toBeGreaterThan(note.updatedAt.getTime());
   });
@@ -80,6 +96,7 @@ describe("what counts as editing a note", () => {
   /** Tags live in a join table, so this used to leave the note row untouched. */
   it("changing the tags does", async () => {
     const { user, note } = await aNote();
+    await aMomentLater();
     await setNoteTags(user.id, note.id, ["late night"]);
 
     const after = await prisma.note.findUniqueOrThrow({ where: { id: note.id } });
