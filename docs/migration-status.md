@@ -1734,6 +1734,14 @@ once credentials exist. Artwork host allowlisted as `resources.tidal.com`; if
 the v2 API serves art from another host, covers will be absent (nothing else
 breaks) until it is added.
 
+### Deployed
+`6a746bc` is live on trackjot.com (build `u5pwx-zNretR2XXx16F4P`), CI green on
+that SHA, with migration `20260923010000_identity_tombstones` applied, smoke and
+browser-shaped checks passing. Rollback snapshot at `/srv/trackjot/previous`.
+The runbook's migrate step is now version-pinned: unpinned `npx prisma` fetched
+an 8.x pre-release that rejected the command (nothing was applied; caught
+before restart).
+
 ### Also
 - "Open in Spotify/Apple Music/Tidal" now appears for every provider-anchored
   track. The stored URL was only ever written by the oEmbed fallback, so tracks

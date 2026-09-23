@@ -98,7 +98,11 @@ APP_BASE_URL=https://trackjot.com NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="$LIVE_PK" n
 # .env.bak.* file is the only copy of what it looked like before an edit.
 rsync -az --delete --exclude '.env' --exclude '.env.bak.*' artifact/ root@<droplet>:/srv/trackjot/current/
 ssh root@<droplet> 'cd /srv/trackjot/current && /opt/node24/bin/node scripts/check-env.mjs .env'
-ssh root@<droplet> 'cd /srv/trackjot/current && npx prisma migrate deploy'
+# PIN the CLI to the repo's version. The standalone artifact carries no Prisma
+# CLI, so a bare `npx prisma` fetches whatever npm calls latest — on 2026-09-23
+# that was an 8.x pre-release, which rejected `migrate deploy` outright.
+PRISMA_V=$(node -p "require('./node_modules/prisma/package.json').version")
+ssh root@<droplet> "cd /srv/trackjot/current && PATH=/opt/node24/bin:\$PATH npx -y prisma@$PRISMA_V migrate deploy"
 ssh root@<droplet> 'pm2 restart trackjot --update-env'
 ssh root@<droplet> 'cd /srv/trackjot/current && /opt/node24/bin/node scripts/smoke.js https://trackjot.com'
 ```
