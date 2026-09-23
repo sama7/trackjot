@@ -118,8 +118,8 @@ async function fillCode(page: Page): Promise<void> {
    * race, and cost an hour to recognise.
    *
    * There is no reliable rendered signal for "prepare finished": the resend
-   * countdown appears immediately either way. So this settles briefly, then
-   * retries once if the race message shows up. Retrying is what makes it
+   * countdown appears immediately either way. So this settles briefly and
+   * then retries until the code sticks (below). Retrying is what makes it
    * robust; the sleep alone would just move the flake around.
    */
   const type = async () => {
@@ -133,35 +133,38 @@ async function fillCode(page: Page): Promise<void> {
     }
   };
 
-  await page.waitForTimeout(3_000);
-  await type();
-
-  const raced = await page
-    .getByText(/need to send a verification code/i)
-    .first()
-    .waitFor({ state: "visible", timeout: 5_000 })
-    .then(() => true)
-    .catch(() => false);
-
-  if (raced) {
-    await page.waitForTimeout(3_000);
-    await type();
-  }
+  const typed = async (): Promise<string> => {
+    const count = await boxes.count();
+    const values: string[] = [];
+    for (let i = 0; i < count; i++) values.push(await boxes.nth(i).inputValue().catch(() => ""));
+    return values.join("");
+  };
+  const leftVerification = (timeout: number) =>
+    page
+      .waitForURL((url) => !/verify/.test(url.pathname), { timeout })
+      .then(() => true)
+      .catch(() => false);
 
   /**
-   * Clerk submits on the last character, so the usual case needs no click, and
-   * clicking anyway races the navigation it just triggered. Only press Continue
-   * if we are still on the verification step.
+   * Type, and keep typing until the code actually sticks.
+   *
+   * On a loaded CI runner Clerk can finish preparing the verification *after*
+   * the code was typed, re-render, and throw the code away — every stuck run
+   * showed the verify step with an empty box and "Enter code." beneath it,
+   * because the old helper then pressed Continue on nothing. So each attempt
+   * waits to see whether we left the step; if not, a code still sitting in
+   * the box just needs Continue, and an empty box needs typing again.
    */
-  const left = await page
-    .waitForURL((url) => !/verify/.test(url.pathname), { timeout: 15_000 })
-    .then(() => true)
-    .catch(() => false);
+  await page.waitForTimeout(2_000);
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    await type();
+    if (await leftVerification(10_000)) return;
 
-  if (!left) {
-    const submit = page.getByRole("button", { name: /^(continue|verify)$/i }).first();
-    if (await submit.isVisible().catch(() => false)) {
-      await submit.click().catch(() => {});
+    if ((await typed()) === TEST_CODE) {
+      const submit = page.getByRole("button", { name: /^(continue|verify)$/i }).first();
+      if (await submit.isVisible().catch(() => false)) await submit.click().catch(() => {});
+      if (await leftVerification(10_000)) return;
     }
+    await page.waitForTimeout(1_000 * attempt);
   }
 }
