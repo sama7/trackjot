@@ -120,6 +120,12 @@ export interface BrowseFilters {
   /** Bounds on when the listening happened, not on when the note was written. */
   from?: Date;
   to?: Date;
+  /**
+   * Every note about one recording — what "View note" in the listening strip
+   * opens. Owner scope still comes from `whereFor`, so a recording id from a URL
+   * can only ever narrow *your* notes.
+   */
+  recording?: string;
 }
 
 export interface BrowseOptions extends BrowseFilters {
@@ -127,6 +133,8 @@ export interface BrowseOptions extends BrowseFilters {
   direction?: SortDirection;
   limit?: number;
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A screenful and a bit, for both browsing and searching. */
 export const PAGE_SIZE = 50;
@@ -191,6 +199,10 @@ function whereFor(ownerId: string, options: BrowseFilters): Prisma.NoteWhereInpu
   if (tag) where.tags = { some: { tag: { ownerId, name: tag } } };
 
   if (contains(options.place)) where.placeLabel = contains(options.place);
+
+  // Checked for shape because it arrives in a URL and the column is a uuid:
+  // anything else would be a query error rather than an empty result.
+  if (options.recording && UUID.test(options.recording)) where.recordingId = options.recording;
 
   if (options.from || options.to) {
     where.experiencedAt = {

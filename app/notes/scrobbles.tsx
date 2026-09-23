@@ -245,17 +245,35 @@ export function Scrobbles({ username }: { username: string }) {
                 </div>
               </div>
 
-              {listen.importedNoteId ? (
-                <span className="note">Jotted</span>
-              ) : writingFor === listen.sourceRef ? null : (
-                <button
-                  type="button"
-                  className="linkish"
-                  aria-label={`Write about ${listen.trackName} by ${listen.artistName}`}
-                  onClick={() => beginWriting(listen.sourceRef)}
-                >
-                  Jot this
-                </button>
+              {/*
+                "Add note" on every row, always; "View note" beside it once one
+                exists. The strip used to replace the button with a bare
+                "Jotted" — no way to reach the note, and no way to write a second
+                one about a song heard again. Two hearings are two occasions.
+                
+                The accessible name *contains* the visible words ("Add note about
+                …"), so a voice user saying what they see reaches the control.
+              */}
+              {writingFor !== listen.sourceRef && (
+                <span className="scrobble-actions">
+                  {listen.recordingId && listen.noteCount > 0 && (
+                    <Link
+                      href={`/notes?recording=${encodeURIComponent(listen.recordingId)}#notes`}
+                      className="scrobble-view"
+                      aria-label={`View ${listen.noteCount === 1 ? "note" : `${listen.noteCount} notes`} about ${listen.trackName}`}
+                    >
+                      {listen.noteCount === 1 ? "View note" : `View ${listen.noteCount} notes`}
+                    </Link>
+                  )}
+                  <button
+                    type="button"
+                    className="linkish"
+                    aria-label={`Add note about ${listen.trackName} by ${listen.artistName}`}
+                    onClick={() => beginWriting(listen.sourceRef)}
+                  >
+                    Add note
+                  </button>
+                </span>
               )}
 
               {writingFor === listen.sourceRef && (
@@ -400,7 +418,7 @@ function ScrobbleJot({ listen, onDone }: { listen: ListenView; onDone: () => voi
           this one — which is what it used to do. */}
       {candidates !== null && candidates.length === 0 && (
         <p className="note">
-          No confident match on Apple Music or Spotify. Your jot is kept as your own
+          No confident match on Apple Music or Spotify. Your note is kept as your own
           entry — private to you, and without cover art.
         </p>
       )}
@@ -485,7 +503,7 @@ function ScrobbleJot({ listen, onDone }: { listen: ListenView; onDone: () => voi
 
       <div className="row">
         <button type="submit" disabled={saving}>
-          {saving ? "Saving…" : "Save jot"}
+          {saving ? "Saving…" : "Save note"}
         </button>
         <button type="button" className="linkish" onClick={onDone}>
           Cancel
@@ -513,7 +531,7 @@ export function LastfmPrompt() {
     <section className="lastfm-prompt">
       <strong>Connect Last.fm?</strong>
       <p className="note">
-        If you scrobble, TrackJot can show what you have been playing so you can jot it
+        If you scrobble, TrackJot can show what you have been playing so you can note it
         down while it is fresh. You approve it on Last.fm&rsquo;s own site — it is not a
         way to sign in here, and TrackJot never sees your password.
       </p>

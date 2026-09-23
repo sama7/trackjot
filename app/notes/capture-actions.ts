@@ -8,6 +8,7 @@ import { previewLink, type LinkPreview } from "@/lib/music/preview-link";
 import { captureFromProviderRef } from "@/lib/music/capture-track";
 import { importFromSpotifyLink } from "@/lib/music/import-from-link";
 import { importFromAppleLink } from "@/lib/music/import-from-apple";
+import { importFromTidalLink } from "@/lib/music/import-from-tidal";
 import { createUserAuthoredRecording } from "@/lib/music/resolve-recording";
 import { createNote } from "@/lib/notes/service";
 
@@ -136,7 +137,9 @@ export async function createCollectionFromPreview(formData: FormData): Promise<v
   const result =
     provider === Provider.apple_music
       ? await importFromAppleLink(user.id, link)
-      : await importFromSpotifyLink(user.id, link);
+      : provider === Provider.tidal
+        ? await importFromTidalLink(user.id, link)
+        : await importFromSpotifyLink(user.id, link);
 
   if (!result.ok) {
     redirect(`/notes?importError=${encodeURIComponent(result.message)}`);

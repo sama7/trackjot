@@ -34,3 +34,28 @@ describe("username shape", () => {
     }
   });
 });
+
+describe("turning something into a username candidate", () => {
+  it("keeps a clean handle as it is", async () => {
+    const { toUsernameCandidate } = await import("./username");
+    expect(toUsernameCandidate("samah")).toBe("samah");
+  });
+
+  it("folds punctuation, case and accents into the allowed alphabet", async () => {
+    const { toUsernameCandidate } = await import("./username");
+    expect(toUsernameCandidate("Samah.Bin-Saeed")).toBe("samah_bin_saeed");
+    expect(toUsernameCandidate("Zoë Kravitz")).toBe("zoe_kravitz");
+  });
+
+  it("gives up on something too short to be a handle", async () => {
+    const { toUsernameCandidate } = await import("./username");
+    expect(toUsernameCandidate("a")).toBeNull();
+    expect(toUsernameCandidate("..")).toBeNull();
+  });
+
+  it("never proposes a reserved word as-is", async () => {
+    const { toUsernameCandidate, checkUsernameShape } = await import("./username");
+    const candidate = toUsernameCandidate("admin")!;
+    expect(checkUsernameShape(candidate)).toBeNull();
+  });
+});

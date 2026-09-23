@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { signUp, testEmail } from "./support/auth";
+import { testDb } from "./support/backend";
 
 /**
  * The connected Last.fm experience, end to end, against a fixture.
@@ -45,10 +46,11 @@ test.skip(
 test.describe.configure({ mode: "serial", timeout: 180_000 });
 
 let page: Page;
+let username: string | null = null;
 
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage();
-  await signUp(page, testEmail("lastfm-fixture"));
+  username = await signUp(page, testEmail("lastfm-fixture"));
 
   // Walk the real approval round trip. The fixture's auth page redirects
   // straight back with a token, which is what a person pressing "Yes, allow
@@ -82,7 +84,9 @@ test.afterAll(async () => {
 /** The strip fetches itself after the page paints, so wait for a row. */
 async function openNotes(): Promise<void> {
   await page.goto("/notes");
-  await expect(page.locator(".scrobble").first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".scrobble").first()).toBeVisible({
+    timeout: 30_000,
+  });
 }
 
 test("the strip shows what the fixture is playing", async () => {
@@ -90,8 +94,12 @@ test("the strip shows what the fixture is playing", async () => {
 
   // A now-playing track carries no timestamp and must be labelled, not dated.
   await expect(page.getByText("Playing now")).toBeVisible();
-  await expect(page.locator(".scrobble").filter({ hasText: "Rasiya" })).toBeVisible();
-  await expect(page.locator(".scrobble").filter({ hasText: "206" }).first()).toBeVisible();
+  await expect(
+    page.locator(".scrobble").filter({ hasText: "Rasiya" }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".scrobble").filter({ hasText: "206" }).first(),
+  ).toBeVisible();
 });
 
 /**
@@ -102,7 +110,9 @@ test("the strip shows what the fixture is playing", async () => {
 test("the same track played twice stays two rows", async () => {
   await openNotes();
 
-  await expect(page.locator(".scrobble").filter({ hasText: "206" })).toHaveCount(2);
+  await expect(
+    page.locator(".scrobble").filter({ hasText: "206" }),
+  ).toHaveCount(2);
 });
 
 test("earlier listens are reachable, and are different plays", async () => {
@@ -119,7 +129,9 @@ test("earlier listens are reachable, and are different plays", async () => {
   await expect(amaNachle).toHaveCount(1, { timeout: 30_000 });
   // The first page is still there — asking for earlier listening must not
   // replace what you were looking at.
-  await expect(page.locator(".scrobble").filter({ hasText: "206" }).first()).toBeVisible();
+  await expect(
+    page.locator(".scrobble").filter({ hasText: "206" }).first(),
+  ).toBeVisible();
 });
 
 /**
@@ -141,9 +153,10 @@ test("a failed save keeps the writing and can be retried", async () => {
 
   const row = page.locator(".scrobble").filter({ hasText: "206" }).first();
   // By accessible name, not by the visible label: each row's button reads
-  // "Write about 206 by Joe James" so a screen reader hears which track it
-  // belongs to, and that aria-label replaces the "Jot this" text for lookups.
-  await row.getByRole("button", { name: /^write about /i }).click();
+  // "Add note about 206 by Joe James": the accessible name contains the
+  // visible words, so a screen reader hears which track it belongs to and a
+  // voice user saying "Add note" still reaches it.
+  await row.getByRole("button", { name: /^add note about /i }).click();
 
   const box = page.locator("form.scrobble-jot textarea");
   const written = "the horns come in late and it works";
@@ -152,7 +165,9 @@ test("a failed save keeps the writing and can be retried", async () => {
   let aborted = false;
   const isAction = (route: import("@playwright/test").Route) => {
     const request = route.request();
-    return request.method() === "POST" && Boolean(request.headers()["next-action"]);
+    return (
+      request.method() === "POST" && Boolean(request.headers()["next-action"])
+    );
   };
 
   await page.route("**/*", async (route) => {
@@ -164,7 +179,7 @@ test("a failed save keeps the writing and can be retried", async () => {
     await route.fallback();
   });
 
-  await page.getByRole("button", { name: /save jot/i }).click();
+  await page.getByRole("button", { name: /save note/i }).click();
 
   // Scoped to the form: the page carries other live regions, and an unscoped
   // `getByRole("alert")` trips strict mode on them.
@@ -175,16 +190,38 @@ test("a failed save keeps the writing and can be retried", async () => {
   // The sentence is still there, which is the entire point.
   await expect(box).toHaveValue(written);
   // And the control is usable again rather than stuck mid-save.
-  await expect(page.getByRole("button", { name: /save jot/i })).toBeEnabled();
+  await expect(page.getByRole("button", { name: /save note/i })).toBeEnabled();
 
   await page.unroute("**/*");
-  await page.getByRole("button", { name: /save jot/i }).click();
+  await page.getByRole("button", { name: /save note/i }).click();
 
   // Exactly one note: the retry carries the same idempotency key as the
-  // attempt that failed.
-  await expect(page.locator(".note-card").filter({ hasText: written })).toHaveCount(1, {
+  // attempt that failed. And the strip now points at it, while still offering
+  // another — "Jotted" used to be a dead end.
+  await expect(
+    page.locator(".note-card").filter({ hasText: written }),
+  ).toHaveCount(1, {
     timeout: 30_000,
   });
+
+  const jottedRow = page
+    .locator(".scrobble")
+    .filter({ hasText: "206" })
+    .first();
+  await expect(
+    jottedRow.getByRole("link", { name: /^view note about 206/i }),
+  ).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(
+    jottedRow.getByRole("button", { name: /^add note about 206/i }),
+  ).toBeVisible();
+
+  // "View note" opens exactly the notes about this track.
+  await jottedRow.getByRole("link", { name: /^view note about 206/i }).click();
+  await expect(page).toHaveURL(/[?&]recording=[0-9a-f-]{36}/);
+  await expect(page.locator(".note-card")).toHaveCount(1, { timeout: 30_000 });
+  await expect(page.locator(".note-card").first()).toContainText(written);
 });
 
 /**
@@ -202,6 +239,35 @@ test("an imported jot can be re-dated to a coarser precision", async () => {
   await card.getByRole("button", { name: /^save$/i }).click();
 
   // "September 2026" rather than a day and a minute.
-  await expect(card.locator(".stamp")).toContainText(/Heard \w+ \d{4}/, { timeout: 30_000 });
+  await expect(card.locator(".stamp")).toContainText(/Heard \w+ \d{4}/, {
+    timeout: 30_000,
+  });
   await expect(card.locator(".stamp")).not.toContainText(/:\d{2}/);
+});
+
+/**
+ * "Delete unwritten history" removes the plays and keeps the writing.
+ *
+ * Asserted against the database, not the page: the strip refetches from the
+ * source as soon as /notes is opened again, so what the page shows afterwards
+ * says nothing about whether the rows were really deleted.
+ */
+test("deleting unwritten history keeps the listen a note was made from", async () => {
+  const db = testDb();
+  const user = await db.user.findUniqueOrThrow({ where: { username: username! } });
+  const before = await db.listen.count({ where: { ownerId: user.id } });
+  const kept = await db.listen.count({ where: { ownerId: user.id, importedAt: { not: null } } });
+  expect(kept).toBe(1);
+  expect(before).toBeGreaterThan(kept);
+
+  await page.goto("/account");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: /delete unwritten history/i }).click();
+  await expect(page.locator("form [role='status']").filter({ hasText: /listen/ })).toContainText(
+    `Deleted ${before - kept} listen`,
+    { timeout: 30_000 },
+  );
+
+  expect(await db.listen.count({ where: { ownerId: user.id } })).toBe(kept);
+  expect(await db.note.count({ where: { ownerId: user.id } })).toBe(1);
 });

@@ -1,9 +1,10 @@
-import { requireUser } from "@/lib/auth";
+import { requireOnboardedUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { DEFAULT_TIME_ZONE, formatDay } from "@/lib/format-date";
 import { lastfmAuthConfigured, lastfmConfigured } from "@/lib/music/lastfm/client";
 import { LastfmForm } from "./lastfm-form";
 import { UsernameForm } from "./username-form";
+import { DisplayNameForm } from "./display-name-form";
 import { TimeZoneForm } from "./time-zone-form";
 import { DangerZone } from "./danger-zone";
 
@@ -25,7 +26,10 @@ export default async function AccountPage({
   searchParams: Promise<{ lastfm?: string }>;
 }) {
   // Set by the Last.fm callback so the page can report what just happened.
-  const [{ lastfm: outcome }, user] = await Promise.all([searchParams, requireUser()]);
+  const [{ lastfm: outcome }, user] = await Promise.all([
+    searchParams,
+    requireOnboardedUser("/account"),
+  ]);
 
   const [notes, collections] = await Promise.all([
     prisma.note.count({ where: { ownerId: user.id } }),
@@ -42,6 +46,7 @@ export default async function AccountPage({
 
       <h2>Username</h2>
       <UsernameForm current={user.username} />
+      <DisplayNameForm current={user.displayName} />
 
       <h2>Time zone</h2>
       <TimeZoneForm current={user.timeZone} />

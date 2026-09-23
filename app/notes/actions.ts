@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { previewForRecording } from "@/lib/music/preview";
+import { EmptyNoteError, saveNoteEdit } from "@/lib/notes/edit";
+import { parseTagInput } from "@/lib/notes/tags";
 import { DEFAULT_TIME_ZONE, toDateInputValue } from "@/lib/format-date";
 import { DatePrecision, PlacePrecision, Visibility } from "@prisma/client";
 import {
@@ -221,4 +223,79 @@ export async function previewForNoteAction(
   if (!note?.recordingId) return { url: null };
 
   return { url: await previewForRecording(note.recordingId, fetch, force) };
+}
+
+export type SaveResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * The note editor's one save: words, when, where and tags, all or nothing.
+ *
+ * Returns a result instead of resolving to void, because the editor has to know
+ * whether to close. It used to close on any settled promise — including an
+ * empty body the update had silently refused, and a tags write that had failed
+ * after the text had succeeded.
+ */
+export async function saveNoteEditAction(noteId: string, formData: FormData): Promise<SaveResult> {
+  const user = await requireUser();
+  const body = String(formData.get("body") ?? "").trim();
+  if (!body) {
+    return {
+      ok: false,
+      error: "A note needs some words in it. Write something, or delete the note instead.",
+    };
+  }
+
+  try {
+    await saveNoteEdit(
+      user.id,
+      noteId,
+      { body, ...readJournalFields(formData, user.timeZone ?? DEFAULT_TIME_ZONE) },
+      parseTagInput(String(formData.get("tags") ?? "")),
+    );
+  } catch (error) {
+    if (error instanceof NoteNotFoundError) {
+      return { ok: false, error: "This note no longer exists." };
+    }
+    if (error instanceof EmptyNoteError) {
+      return { ok: false, error: error.message };
+    }
+    // Deliberately not the underlying message: it is a database error, and the
+    // writer can do nothing with it except lose confidence.
+    console.error("saveNoteEditAction failed", error instanceof Error ? error.name : "unknown");
+    return { ok: false, error: "That didn’t save. Your changes are still here — try again." };
+  }
+
+  revalidatePath("/notes");
+  revalidatePath("/collections");
+  return { ok: true };
+}
+
+export type VisibilityResult = { ok: true; visibility: Visibility } | { ok: false; error: string };
+
+/**
+ * Change who can read a note, and say whether it worked.
+ *
+ * The picker shows the new value the instant it is chosen, which is right for
+ * the common case and wrong for a failure: it used to go on showing "Public"
+ * for a note the server had kept private. Returning the stored value lets the
+ * picker settle on the truth either way.
+ */
+export async function changeNoteVisibilityAction(
+  noteId: string,
+  requested: string,
+): Promise<VisibilityResult> {
+  const user = await requireUser();
+  if (!isVisibility(requested)) return { ok: false, error: "That isn’t a visibility setting." };
+
+  try {
+    const note = await setNoteVisibility(user.id, noteId, requested);
+    revalidatePath("/notes");
+    revalidatePath("/collections");
+    return { ok: true, visibility: note.visibility };
+  } catch (error) {
+    if (error instanceof NoteNotFoundError) {
+      return { ok: false, error: "This note no longer exists." };
+    }
+    return { ok: false, error: "That didn’t change. It is still set as before." };
+  }
 }

@@ -1,17 +1,16 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { UsernameField } from "@/components/username-field";
+import { checkUsernameAction } from "../welcome/actions";
 import { setUsernameAction, type UsernameState } from "./actions";
 
 /**
- * Pick a handle.
+ * Change a handle.
  *
- * It lives on the account page rather than in the sign-up flow, and that is a
- * deliberate compromise: sign-up is Clerk's, and adding a required field to it
- * means either a custom flow or a Clerk-side setting whose validation we do not
- * control. Asking here keeps one source of truth for the rules — and the prompt
- * is unmissable while the field is empty, which is what matters before the
- * social surfaces exist.
+ * Choosing one is required at sign-up (`/welcome`); this is where it changes
+ * afterwards, with the same as-you-type availability check and the same
+ * suggestions when a name is taken.
  */
 export function UsernameForm({ current }: { current: string | null }) {
   const [state, action, pending] = useActionState<UsernameState, FormData>(
@@ -84,14 +83,11 @@ export function UsernameForm({ current }: { current: string | null }) {
     <form action={action} className="capture">
       <div className="field">
         <label htmlFor="username">Username</label>
-        <input
-          id="username"
-          name="username"
-          defaultValue={claimed ?? ""}
-          autoComplete="username"
-          aria-describedby="hint-username"
+        <UsernameField
           autoFocus={current !== null}
-          required
+          defaultValue={claimed ?? ""}
+          check={checkUsernameAction}
+          describedBy="hint-username"
         />
         {/* The rule used to be the placeholder, where on a phone it was cut to
             "3–30 characters: letters, numbers, und" — and a placeholder also
@@ -105,6 +101,9 @@ export function UsernameForm({ current }: { current: string | null }) {
       {state.error && (
         <p role="alert" className="error">
           {state.error}
+          {state.suggestions && state.suggestions.length > 0 && (
+            <> Free right now: {state.suggestions.join(", ")}.</>
+          )}
         </p>
       )}
 

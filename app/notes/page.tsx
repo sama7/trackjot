@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth";
+import { linkProviderNames } from "@/lib/music/link-providers";
+import { requireOnboardedUser } from "@/lib/auth";
 import {
   browseNotes,
   defaultDirectionFor,
@@ -44,9 +45,10 @@ export default async function NotesPage({
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  const [params, user] = await Promise.all([searchParams, requireUser()]);
+  const [params, user] = await Promise.all([searchParams, requireOnboardedUser("/notes")]);
   const query = (params.q ?? "").trim();
   const tagFilter = (params.tag ?? "").trim();
+  const recordingFilter = (params.recording ?? "").trim();
 
   const importError = params.importError;
 
@@ -103,6 +105,7 @@ export default async function NotesPage({
           artist: filters.artist || undefined,
           album: filters.album || undefined,
           place: filters.place || undefined,
+          recording: recordingFilter || undefined,
           /**
            * Bounds built in the reader's own zone, not in UTC.
            *
@@ -129,6 +132,7 @@ export default async function NotesPage({
           artist: filters.artist || undefined,
           album: filters.album || undefined,
           place: filters.place || undefined,
+          recording: recordingFilter || undefined,
           from: fromBounds?.start,
           to: toBounds?.end,
         }),
@@ -144,7 +148,7 @@ export default async function NotesPage({
       artist: filters.artist,
       album: filters.album,
       place: filters.place,
-    }) || Boolean(filters.from || filters.to);
+    }) || Boolean(filters.from || filters.to || recordingFilter);
 
   return (
     <main>
@@ -204,7 +208,7 @@ export default async function NotesPage({
         storageKey="capture"
         defaultOpen={false}
       >
-        <CaptureForm />
+        <CaptureForm providers={linkProviderNames()} />
       </Panel>
 
       {/*
@@ -283,7 +287,7 @@ export default async function NotesPage({
                   </>
                 ) : (
                   <>
-                    Paste a Spotify or Apple Music link above and write the
+                    Paste a {linkProviderNames()} link above and write the
                     thing you want to remember about it.
                   </>
                 )}

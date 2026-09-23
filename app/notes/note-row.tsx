@@ -11,13 +11,12 @@ import { describeTimestamps } from "@/lib/format-date";
 import type { NoteRowData } from "@/lib/notes/list";
 import { ExperiencedFields, PlaceFields } from "./note-fields";
 import { TagInput } from "./tag-input";
-import { setNoteTagsAction } from "./tag-actions";
 import {
+  changeNoteVisibilityAction,
   deleteNoteAction,
   previewForNoteAction,
-  setNoteVisibilityAction,
+  saveNoteEditAction,
   setNoteVisibilityFormAction,
-  updateNoteAction,
 } from "./actions";
 
 /**
@@ -43,7 +42,34 @@ export function NoteRow({
   allPlaces?: string[];
 }) {
   const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const shareUrl = note.shareToken ? `${baseUrl}/n/${note.shareToken}` : null;
+
+  /**
+   * Submitted by hand rather than through `<form action>`.
+   *
+   * React resets a form's uncontrolled fields as soon as its action resolves —
+   * and an action that *returns* an error resolves perfectly normally. So a
+   * rejected save would have wiped the textarea, the dates, the place and the
+   * tags at exactly the moment the writer was told to try again. Handling the
+   * submit ourselves means nothing is reset unless the save succeeded.
+   */
+  async function saveEdit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const result = await saveNoteEditAction(note.id, new FormData(event.currentTarget));
+      if (result.ok) setEditing(false);
+      else setSaveError(result.error);
+    } catch {
+      setSaveError("That didn’t save. Your changes are still here — try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <li className="note-card">
@@ -74,14 +100,7 @@ export function NoteRow({
       </div>
 
       {editing ? (
-        <form
-          action={async (formData) => {
-            await updateNoteAction(note.id, formData);
-            await setNoteTagsAction(note.id, formData);
-            setEditing(false);
-          }}
-          className="inline-edit"
-        >
+        <form onSubmit={saveEdit} className="inline-edit" noValidate>
           <label htmlFor={`body-${note.id}`} className="visually-hidden">
             Note
           </label>
@@ -122,9 +141,23 @@ export function NoteRow({
               suggestions={allTags}
             />
           </fieldset>
+          {saveError && (
+            <p role="alert" className="error">
+              {saveError}
+            </p>
+          )}
           <div className="row">
-            <button type="submit">Save</button>
-            <button type="button" className="linkish" onClick={() => setEditing(false)}>
+            <button type="submit" disabled={saving}>
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              type="button"
+              className="linkish"
+              onClick={() => {
+                setSaveError(null);
+                setEditing(false);
+              }}
+            >
               Cancel
             </button>
           </div>
@@ -186,7 +219,7 @@ export function NoteRow({
         <VisibilityPicker
           id={note.id}
           visibility={note.visibility}
-          action={setNoteVisibilityAction}
+          action={changeNoteVisibilityAction}
           formAction={setNoteVisibilityFormAction}
         />
 
@@ -268,10 +301,14 @@ export function VisibilityPicker({
 }: {
   id: string;
   visibility: Visibility;
-  action: (id: string, visibility: string) => Promise<void>;
+  action: (
+    id: string,
+    visibility: string,
+  ) => Promise<{ ok: true; visibility: Visibility } | { ok: false; error: string }>;
   formAction: (id: string, formData: FormData) => Promise<void>;
 }) {
   const [value, setValue] = useState<Visibility>(visibility);
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   return (
@@ -285,12 +322,28 @@ export function VisibilityPicker({
         value={value}
         disabled={pending}
         onChange={(event) => {
+          const previous = value;
           const next = event.currentTarget.value as Visibility;
           setValue(next);
-          // The chosen value is passed to the action directly rather than left
-          // for the form to serialise. See the comment on the action.
+          setError(null);
+          /**
+           * Shown at once, confirmed afterwards — and put back if the server
+           * refused. Without the revert a failed change left the picker reading
+           * "Public" over a note that was still private, which is the single
+           * worst thing this control could misreport.
+           */
           startTransition(async () => {
-            await action(id, next);
+            try {
+              const result = await action(id, next);
+              if (result.ok) setValue(result.visibility);
+              else {
+                setValue(previous);
+                setError(result.error);
+              }
+            } catch {
+              setValue(previous);
+              setError("That didn’t change. It is still set as before.");
+            }
           });
         }}
       >
@@ -303,6 +356,11 @@ export function VisibilityPicker({
       <noscript>
         <button type="submit">Update</button>
       </noscript>
+      {error && (
+        <p role="alert" className="error visibility-error">
+          {error}
+        </p>
+      )}
     </form>
   );
 }

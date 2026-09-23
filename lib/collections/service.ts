@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { trackUrl } from "@/lib/music/provider-url";
 import { Visibility, type Collection } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { providerLabel } from "@/lib/notes/list";
@@ -295,7 +296,7 @@ export async function getSharedCollection(shareToken: string): Promise<SharedCol
                 orderBy: { position: "asc" },
                 select: { artist: { select: { name: true } } },
               },
-              externalIds: { select: { providerUrl: true }, take: 1 },
+              externalIds: { select: { provider: true, providerId: true, providerUrl: true }, take: 1 },
             },
           },
         },
@@ -321,7 +322,7 @@ export async function getSharedCollection(shareToken: string): Promise<SharedCol
         item.recording.artists.length > 0
           ? item.recording.artists.map((ra) => ra.artist.name).join(", ")
           : item.recording.artistDisplay,
-      providerUrl: item.recording.externalIds[0]?.providerUrl ?? null,
+      providerUrl: trackUrl(item.recording.externalIds[0]),
       notes: shared.byItemId.get(item.id) ?? [],
     })),
   };

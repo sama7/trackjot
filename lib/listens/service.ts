@@ -56,8 +56,20 @@ export interface ListenView {
   url: string | null;
   /** True when Last.fm gave a MusicBrainz id, so the import can be anchored. */
   identified: boolean;
-  /** Set once imported, so the strip can say so instead of offering it twice. */
-  importedNoteId: string | null;
+  /**
+   * The recording this play resolved to, when it has been written about — so
+   * "View note" can open exactly the notes about this track.
+   */
+  recordingId: string | null;
+  /**
+   * How many notes exist about this track.
+   *
+   * A count rather than a single "imported" flag: the strip used to answer
+   * "have I written about this?" with a bare "Jotted" and no way in, and then
+   * refused a second note about a song you had heard again. Hearing something
+   * twice is two occasions, and each may deserve its own note.
+   */
+  noteCount: number;
 }
 
 const NOW_PLAYING_PREFIX = "nowplaying:";
@@ -285,14 +297,15 @@ async function viewFor(userId: string, tracks: RecentTrack[]): Promise<ListenVie
     .map((s) => s.recordingId)
     .filter((id): id is string => id !== null);
 
-  const importedNotes =
+  const counts =
     recordingIds.length > 0
-      ? await prisma.note.findMany({
+      ? await prisma.note.groupBy({
+          by: ["recordingId"],
           where: { ownerId: userId, recordingId: { in: recordingIds } },
-          select: { id: true, recordingId: true },
+          _count: { _all: true },
         })
       : [];
-  const noteByRecording = new Map(importedNotes.map((n) => [n.recordingId, n.id]));
+  const notesByRecording = new Map(counts.map((c) => [c.recordingId, c._count._all]));
   const recordingByRef = new Map(stored.map((s) => [s.sourceRef, s.recordingId]));
 
   return tracks.map((track) => {
@@ -305,7 +318,8 @@ async function viewFor(userId: string, tracks: RecentTrack[]): Promise<ListenVie
       playedAt: track.playedAt,
       url: track.url,
       identified: Boolean(track.recordingMbid),
-      importedNoteId: recordingId ? (noteByRecording.get(recordingId) ?? null) : null,
+      recordingId,
+      noteCount: recordingId ? (notesByRecording.get(recordingId) ?? 0) : 0,
     };
   });
 }

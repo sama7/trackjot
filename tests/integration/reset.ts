@@ -27,5 +27,6 @@ export async function resetDatabase(prisma: PrismaClient): Promise<void> {
   await prisma.artistExternalId.deleteMany();
   await prisma.artist.deleteMany();
   await prisma.authLapse.deleteMany();
+  await prisma.identityTombstone.deleteMany();
   await prisma.user.deleteMany();
 }

@@ -126,7 +126,11 @@ function describeToSystem(
 type State =
   | { kind: "idle" }
   | { kind: "loading" }
-  | { kind: "ready"; url: string }
+  /**
+   * `healed` marks a link that was already re-resolved once after failing to
+   * play, and `resumeAt` where playback had got to when it failed.
+   */
+  | { kind: "ready"; url: string; healed?: boolean; resumeAt?: number }
   | { kind: "none" }
   | { kind: "error"; message: string };
 
@@ -281,12 +285,35 @@ export function PreviewPlayer({
          * *resolving* had an error path before, so this failed silently: the
          * button sat on "play" and nothing ever happened.
          */
-        onError={() => {
+        onError={(event) => {
           setPlaying(false);
-          setState({ kind: "error", message: "Preview wouldn’t play" });
+          if (state.healed) {
+            setState({ kind: "error", message: "Preview wouldn’t play" });
+            return;
+          }
+          /**
+           * Heal once, without being asked.
+           *
+           * The usual cause is a provider link that has expired since it was
+           * cached — Deezer's are signed and short-lived. Asking the server for
+           * a fresh one (forced past the cache) fixes that silently, so the
+           * person never sees an error for something a second request solves.
+           * Only once: a link that fails again after a fresh resolve is a real
+           * failure, and retrying in a loop would hammer the provider.
+           */
+          const resumeAt = event.currentTarget.currentTime || 0;
+          setState({ kind: "loading" });
+          resolve(noteId, true).then(
+            ({ url }) =>
+              setState(url ? { kind: "ready", url, healed: true, resumeAt } : { kind: "none" }),
+            () => setState({ kind: "error", message: "Preview wouldn’t play" }),
+          );
         }}
         onTimeUpdate={(event) => setPosition(event.currentTarget.currentTime)}
-        onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 30)}
+        onLoadedMetadata={(event) => {
+          setDuration(event.currentTarget.duration || 30);
+          if (state.resumeAt) event.currentTarget.currentTime = state.resumeAt;
+        }}
       />
 
       <button

@@ -83,6 +83,11 @@ const RULES = [
     isPem,
     "a complete PKCS#8 PEM — BOTH begin and end markers, over 200 bytes",
   ],
+  // Optional, as a pair: developer.tidal.com → your app → Client ID / Secret.
+  // Absent, Tidal links are recognised and politely refused.
+  ["TIDAL_CLIENT_ID", false, (v) => /^[A-Za-z0-9]{8,64}$/.test(v), "the app's Client ID"],
+  ["TIDAL_CLIENT_SECRET", false, (v) => /^[A-Za-z0-9+/=_-]{16,128}$/.test(v), "the app's Client Secret"],
+  ["TIDAL_COUNTRY_CODE", false, (v) => /^[A-Za-z]{2}$/.test(v), "a two-letter country code, e.g. US"],
   // Optional: its absence is how the Last.fm integration stays feature-flagged
   // off. Present but malformed is the state worth catching, because the feature
   // would then appear in the UI and fail at call time.
@@ -152,6 +157,13 @@ if (env.LASTFM_API_KEY && !env.LASTFM_SHARED_SECRET) {
     "\n  PARTIAL    Last.fm: key set, LASTFM_SHARED_SECRET missing. Public profiles will\n" +
       "             work; connecting an account will not.",
   );
+}
+
+if (Boolean(env.TIDAL_CLIENT_ID) !== Boolean(env.TIDAL_CLIENT_SECRET)) {
+  console.log(
+    "\n  INCOMPLETE Tidal: TIDAL_CLIENT_ID and TIDAL_CLIENT_SECRET must both be set, or neither.",
+  );
+  failed++;
 }
 
 const apple = ["APPLE_TEAM_ID", "APPLE_MUSIC_KEY_ID", "APPLE_MUSIC_PRIVATE_KEY"];

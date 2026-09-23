@@ -1,14 +1,18 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { clerkClient } from "@clerk/nextjs/server";
 import { requireUser } from "@/lib/auth";
+import { deleteAccount } from "@/lib/users/delete-account";
 import { prisma } from "@/lib/db";
-import { RecordingOrigin } from "@prisma/client";
-import { describeProblem, setUsername } from "@/lib/users/username";
+import { describeProblem, setUsername, suggestUsernames } from "@/lib/users/username";
+import { normalizeDisplayName } from "@/lib/users/display-name";
 
 export interface UsernameState {
   error?: string;
   saved?: string;
+  /** Free alternatives, offered when the requested name was taken. */
+  suggestions?: string[];
 }
 
 /**
@@ -25,10 +29,33 @@ export async function setUsernameAction(
   const requested = String(formData.get("username") ?? "");
 
   const result = await setUsername(user.id, requested);
-  if (!result.ok) return { error: describeProblem(result.problem) };
+  if (!result.ok) {
+    return {
+      error: describeProblem(result.problem),
+      suggestions: result.problem === "taken" ? await suggestUsernames(requested) : [],
+    };
+  }
 
   revalidatePath("/account");
   return { saved: result.username };
+}
+
+export interface DisplayNameState {
+  error?: string;
+  /** What was stored — null when cleared back to "use the username". */
+  saved?: string | null;
+}
+
+/** Set or clear the optional display name. */
+export async function setDisplayNameAction(
+  _previous: DisplayNameState,
+  formData: FormData,
+): Promise<DisplayNameState> {
+  const user = await requireUser();
+  const displayName = normalizeDisplayName(String(formData.get("displayName") ?? ""));
+  await prisma.user.update({ where: { id: user.id }, data: { displayName } });
+  revalidatePath("/account");
+  return { saved: displayName };
 }
 
 
@@ -108,10 +135,10 @@ export async function deleteListeningHistoryAction(): Promise<DangerState> {
  * Typing the username back is the confirmation, not a checkbox: this is the one
  * action in the product with no undo, and it should cost a deliberate sentence.
  *
- * The local row goes and every owned row goes with it by cascade. The auth
- * provider's record is **not** deleted here, and that is stated in the UI rather
- * than hidden: Clerk owns that lifecycle, and quietly implying otherwise would
- * be the same class of untrue-privacy-claim as the collection footer.
+ * The local row goes and every owned row goes with it by cascade; then the
+ * Clerk identity is deleted, which revokes its sessions everywhere — see
+ * `lib/users/delete-account.ts` for why leaving it in place resurrected the
+ * account one redirect later.
  */
 export async function deleteAccountAction(formData: FormData): Promise<DangerState> {
   const user = await requireUser();
@@ -122,32 +149,17 @@ export async function deleteAccountAction(formData: FormData): Promise<DangerSta
     return { error: `Type “${expected}” exactly to confirm.` };
   }
 
-  /**
-   * Their own typed-in entries go too.
-   *
-   * Everything owned cascades from the user row, but `recordings.created_by` is
-   * `SET NULL` — so a manually entered recording would outlive the account that
-   * typed it, as an orphan nobody can reach and nobody agreed to leave behind.
-   * These are `origin = user` and creator-scoped by policy, so no other
-   * member's note can be pointing at one; collecting the ids before the delete
-   * is the only way to find them afterwards, since the column that identifies
-   * them is the one being nulled.
-   *
-   * Catalog rows that came from a provider are deliberately kept: those are not
-   * this person's data, they are the shared catalog other people's notes hang
-   * from.
-   */
-  const authored = await prisma.recording.findMany({
-    where: { origin: RecordingOrigin.user, createdById: user.id },
-    select: { id: true },
+  const { identityDeleted } = await deleteAccount(user, async (authSubject) => {
+    const clerk = await clerkClient();
+    await clerk.users.deleteUser(authSubject);
   });
 
-  await prisma.$transaction(async (tx) => {
-    await tx.user.delete({ where: { id: user.id } });
-    if (authored.length > 0) {
-      await tx.recording.deleteMany({ where: { id: { in: authored.map((r) => r.id) } } });
-    }
-  });
-
+  if (!identityDeleted) {
+    return {
+      done:
+        "Everything you kept here has been deleted. Your sign-in could not be removed just now, " +
+        "so signing in again would start a new, empty account.",
+    };
+  }
   return { done: "Your account and everything in it has been deleted." };
 }

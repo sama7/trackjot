@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { NOTE_LIST_INCLUDE } from "@/lib/notes/list";
 import { NoteNotFoundError } from "@/lib/notes/service";
@@ -54,49 +55,64 @@ export async function setNoteTags(
   noteId: string,
   names: string[],
 ): Promise<string[]> {
+  return prisma.$transaction((tx) => applyNoteTags(tx, ownerId, noteId, names));
+}
+
+/**
+ * The body of `setNoteTags`, runnable inside a caller's transaction.
+ *
+ * Split out so that editing a note can save its words and its tags as **one**
+ * atomic write. They used to be two actions fired back to back from the same
+ * form, which meant the note could be saved and its tags not — or the reverse —
+ * with nothing to tell the writer which half had landed.
+ */
+export async function applyNoteTags(
+  tx: Prisma.TransactionClient,
+  ownerId: string,
+  noteId: string,
+  names: string[],
+): Promise<string[]> {
   const wanted = parseTagInput(names.join(","));
 
-  return prisma.$transaction(async (tx) => {
-    // Owner-scoped: a valid note id belonging to someone else resolves to
-    // nothing and is reported as missing, exactly like a deleted note.
-    const note = await tx.note.findFirst({ where: { id: noteId, ownerId }, select: { id: true } });
-    if (!note) throw new NoteNotFoundError();
+  // Owner-scoped: a valid note id belonging to someone else resolves to
+  // nothing and is reported as missing, exactly like a deleted note.
+  const note = await tx.note.findFirst({ where: { id: noteId, ownerId }, select: { id: true } });
+  if (!note) throw new NoteNotFoundError();
 
-    const tagIds: string[] = [];
-    for (const name of wanted) {
-      const tag = await tx.tag.upsert({
-        where: { ownerId_name: { ownerId, name } },
-        create: { ownerId, name },
-        update: {},
-        select: { id: true },
-      });
-      tagIds.push(tag.id);
-    }
+  const tagIds: string[] = [];
+  for (const name of wanted) {
+    const tag = await tx.tag.upsert({
+      where: { ownerId_name: { ownerId, name } },
+      create: { ownerId, name },
+      update: {},
+      select: { id: true },
+    });
+    tagIds.push(tag.id);
+  }
 
-    await tx.noteTag.deleteMany({ where: { noteId, tagId: { notIn: tagIds } } });
-    if (tagIds.length > 0) {
-      await tx.noteTag.createMany({
-        data: tagIds.map((tagId) => ({ noteId, tagId })),
-        skipDuplicates: true,
-      });
-    }
+  await tx.noteTag.deleteMany({ where: { noteId, tagId: { notIn: tagIds } } });
+  if (tagIds.length > 0) {
+    await tx.noteTag.createMany({
+      data: tagIds.map((tagId) => ({ noteId, tagId })),
+      skipDuplicates: true,
+    });
+  }
 
-    /**
-     * Drop tags this user no longer uses anywhere. Without this the tag list
-     * only ever grows, and a filter menu full of labels attached to nothing is
-     * worse than no menu. Scoped to this owner, so it cannot touch anyone else's.
-     */
-    await tx.tag.deleteMany({ where: { ownerId, notes: { none: {} } } });
+  /**
+   * Drop tags this user no longer uses anywhere. Without this the tag list
+   * only ever grows, and a filter menu full of labels attached to nothing is
+   * worse than no menu. Scoped to this owner, so it cannot touch anyone else's.
+   */
+  await tx.tag.deleteMany({ where: { ownerId, notes: { none: {} } } });
 
-    /**
-     * Tags live in a join table, so retagging never touched the note row and
-     * "edited" silently ignored it. Changing a note's tags IS editing the note —
-     * unlike changing its visibility, which deliberately does not count.
-     */
-    await tx.note.update({ where: { id: note.id }, data: { updatedAt: new Date() } });
+  /**
+   * Tags live in a join table, so retagging never touched the note row and
+   * "edited" silently ignored it. Changing a note's tags IS editing the note —
+   * unlike changing its visibility, which deliberately does not count.
+   */
+  await tx.note.update({ where: { id: note.id }, data: { updatedAt: new Date() } });
 
-    return wanted;
-  });
+  return wanted;
 }
 
 export async function listTags(ownerId: string): Promise<Array<{ name: string; count: number }>> {

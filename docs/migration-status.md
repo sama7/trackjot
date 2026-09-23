@@ -2,7 +2,7 @@
 
 Durable handoff between sessions. Read this before relying on chat context. Update it after every phase and before ending a substantial session.
 
-**Last updated:** August 12, 2026
+**Last updated:** September 23, 2026
 **Current phase:** Phases 2, 3 and 4 complete. Live over HTTPS at https://trackjot.com, gated and `noindex`. Every core capability now has a surface.
 **Checkpoint 1a: PASSED.** The schema review produced two corrections, both now merged — `album_artists` was built, and the `Provider` enum was cut back to authoritative sources.
 **Next milestone:** the Clerk → SuperTokens migration, which is the last piece of scope with a design decision left in it. Everything after it is verification and polish.
@@ -1691,6 +1691,64 @@ four causes — a box that cannot shrink (`min-width: auto`), a control the UA
 sizes (`appearance: auto`), text measured in a font that is not the reader's,
 and a layout with no width at which it stacks. Each is assertable as a rule that
 holds in every engine, which is what the suite now does.
+
+## September 23 2026 — joining, leaving, Tidal, and self-healing previews
+
+### Joining requires a username
+Every signed-in page (`requireOnboardedUser`) sends an account with no username
+to `/welcome?next=…`, so the step cannot be skipped by navigating around it. The
+field checks availability as you type (debounced; only the answer for the value
+still in the box is shown), offers free alternatives as buttons when a name is
+taken, and the submit re-checks on the server — the unique index settles races.
+The same field and suggestions are on the account page's "Change it". An
+optional display name (pseudonyms fine; control/bidi characters stripped, 50
+chars) is set at welcome and editable in settings. `next` is same-site only.
+
+**Deferred, deliberately:** old-handle redirects and a handle-change cooldown
+(GPT-6 Astra's suggestion) — there are no profile URLs yet, so there is nothing
+for an old handle to redirect.
+
+### Leaving means leaving
+Deleting an account now deletes the Clerk identity as well as the rows
+(`lib/users/delete-account.ts`) and signs the browser out. Before, the live
+session re-created an empty account one redirect later. The data half is the
+guarantee; if Clerk refuses, the page says so rather than claiming a clean exit.
+
+**Proven with real accounts** on the Clerk development instance
+(`tests/e2e/account-lifecycle.spec.ts`): rows gone from PostgreSQL, Clerk's own
+API answering 404 for the user, `/notes` redirecting to sign-in, and no user row
+recreated. Delete-unwritten-history is proven in the Last.fm fixture suite
+against the database: unwritten listens gone, the jotted listen and its note
+kept. Google sign-in is not automated — Google blocks automated browsers and
+needs a real phone-verified account; the code path after Clerk is identical.
+
+### Tidal
+Track, album and playlist links capture and import through Tidal's catalogue
+API (client credentials; no Tidal user signs in). Previews come from the ISRC
+via Deezer, like Spotify-anchored tracks. Feature-flagged on
+`TIDAL_CLIENT_ID`/`TIDAL_CLIENT_SECRET` (+ optional `TIDAL_COUNTRY_CODE`,
+default US); unconfigured, Tidal links are recognised and politely refused, and
+no copy names Tidal. Built against Tidal's published OpenAPI spec v1.10.134 and
+fixture-tested; **not yet exercised against the live API** — first thing to do
+once credentials exist. Artwork host allowlisted as `resources.tidal.com`; if
+the v2 API serves art from another host, covers will be absent (nothing else
+breaks) until it is added.
+
+### Also
+- "Open in Spotify/Apple Music/Tidal" now appears for every provider-anchored
+  track. The stored URL was only ever written by the oEmbed fallback, so tracks
+  captured or imported through a provider API had no link; it is now derived
+  from provider + id (`lib/music/provider-url.ts`) and stored on new rows.
+- A preview whose link fails to play re-resolves once, forced past the cache,
+  and resumes — the person never sees an error for an expired Deezer link.
+  Component-tested (`components/preview-player.test.tsx`, happy-dom).
+- Note editing saves words, date, place and tags in one transaction; an empty
+  body is refused with a message rather than skipped; the visibility picker
+  reverts on a failed save.
+- Scrobbles show "View note(s)" plus "Add note" instead of a dead-end "Jotted".
+- Time zones: a short, offset-ordered list with major cities.
+- Panel headings centred to 0.000px open and closed (the `details > *` margin
+  was hitting the summary); asserted in `narrow-layout.spec.ts`.
 
 ## What is left before a public release
 

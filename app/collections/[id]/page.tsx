@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { trackUrl } from "@/lib/music/provider-url";
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth";
+import { requireOnboardedUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { describeTimestamps, formatDay } from "@/lib/format-date";
 import { providerLabel } from "@/lib/notes/list";
@@ -23,7 +24,8 @@ export default async function CollectionPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const [{ id }, user] = await Promise.all([params, requireUser()]);
+  const { id } = await params;
+  const user = await requireOnboardedUser(`/collections/${id}`);
 
   // Owner-scoped in the query: a valid id belonging to someone else is a 404,
   // indistinguishable from one that never existed.
@@ -136,7 +138,7 @@ export default async function CollectionPage({
               recording.album?.artworkUrl ??
               null,
             artworkUrl: recording.artworkUrl ?? recording.album?.artworkUrl ?? null,
-            providerUrl: external?.providerUrl ?? null,
+            providerUrl: trackUrl(external),
             providerName: providerLabel(external?.provider ?? null),
             note: item.notes[0] ? { id: item.notes[0].id, body: item.notes[0].body } : null,
           };

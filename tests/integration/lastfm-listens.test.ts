@@ -385,20 +385,36 @@ describe("the note a play becomes", () => {
     expect((await prisma.note.findFirstOrThrow({})).visibility).toBe("private");
   });
 
-  it("marks the play as imported, so the strip stops offering it", async () => {
+  /**
+   * The strip says how many notes exist about a play and points at them — and
+   * still offers another. It used to swap the button for a bare "Jotted",
+   * which gave no way to the note and no way to write a second one about a song
+   * heard again.
+   */
+  it("counts the notes about a play and points at their recording", async () => {
     const user = await makeUser();
     vi.stubGlobal("fetch", lastfmResponse([play()]));
     await syncRecentListens(user.id);
     const listen = await prisma.listen.findFirstOrThrow({});
 
-    await importListen(user.id, { sourceRef: listen.sourceRef, body: "jotted" });
+    await importListen(user.id, { sourceRef: listen.sourceRef, body: "first thought" });
 
     const after = await prisma.listen.findUniqueOrThrow({ where: { id: listen.id } });
     expect(after.importedAt).not.toBeNull();
     expect(after.recordingId).not.toBeNull();
 
-    const view = await syncRecentListens(user.id);
-    expect(view[0]!.importedNoteId).not.toBeNull();
+    let view = await syncRecentListens(user.id);
+    expect(view[0]!.noteCount).toBe(1);
+    expect(view[0]!.recordingId).toBe(after.recordingId);
+
+    // A second, deliberate note about the same play is allowed and counted.
+    await importListen(user.id, {
+      sourceRef: listen.sourceRef,
+      body: "second listen, different thought",
+      idempotencyKey: "jot_second_note_00000",
+    });
+    view = await syncRecentListens(user.id);
+    expect(view[0]!.noteCount).toBe(2);
   });
 
   it("refuses a play belonging to somebody else, given its real ref", async () => {

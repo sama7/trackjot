@@ -85,7 +85,7 @@ const MATCH_PICKER = `
     </fieldset>
     <textarea rows="3" placeholder="What do you want to remember about Rasiya?"></textarea>
     <div class="row">
-      <button type="submit">Save jot</button>
+      <button type="submit">Save note</button>
       <button type="button" class="linkish">Cancel</button>
       <span class="note">Dated Sep 8, 2026, 11:50 PM</span>
     </div>
@@ -195,7 +195,7 @@ const LIVE_STRIP = `
         <div class="note">Anhad + Tanner · Silent Days EP</div>
         <div class="note scrobble-when"><span class="playing-bars" aria-hidden="true"><i></i><i></i><i></i></span>Playing now</div>
       </div>
-      <button type="button" class="linkish">Jot this</button>
+      <button type="button" class="linkish">Add note</button>
     </li>
     <li class="scrobble">
       <div class="scrobble-main">
@@ -203,7 +203,7 @@ const LIVE_STRIP = `
         <div class="note">Anyasa · Shiva Valley</div>
         <div class="note scrobble-when">Sep 9, 2026, 2:41 PM</div>
       </div>
-      <button type="button" class="linkish">Jot this</button>
+      <button type="button" class="linkish">Add note</button>
     </li>
   </ul>
 </section></main>`;
@@ -648,6 +648,90 @@ test.describe("the track playing right now", () => {
       true,
     );
   });
+
+  /**
+   * Section headings sit in the exact vertical centre of their boxes — open or
+   * closed, one line or wrapped.
+   *
+   * Three rounds of "fixed" preceded this test, and each was checked by looking
+   * at a screenshot. The actual cause was a margin, not a font: a rule meant to
+   * space the *contents* of an open `<details>` (`details > * { margin-top }`)
+   * also matched its `<summary>`, pushing every heading ~10px down inside its
+   * own box. When open, the body's identical margin landed below the heading and
+   * nearly cancelled it, which is why open looked right and closed did not.
+   *
+   * Measured on the trimmed text box — cap-top to baseline — which is exactly
+   * the ink, so the assertion is font-independent and can be strict. Verified
+   * separately by reading rendered pixel rows, which agree to within one
+   * anti-aliased device pixel.
+   */
+  for (const [label, viewport] of [
+    ["on a phone", NARROW],
+    ["on a laptop", { width: 1280, height: 900 }],
+  ] as const) {
+    test(`panel and CSV headings are exactly centred ${label}, open and closed`, async ({
+      page,
+    }) => {
+      await overflowOf(
+        page,
+        '<details class="panel" id="short"><summary><span class="panel-heading">' +
+          '<span class="panel-title">Add a note</span>' +
+          '<span class="note panel-note">paste a link, or type it in</span>' +
+          '</span></summary><div class="panel-body">x</div></details>' +
+          '<details class="panel" id="wrapped"><summary><span class="panel-heading">' +
+          '<span class="panel-title">Recently played</span>' +
+          '<span class="note panel-note">from a rather long account name on Last.fm</span>' +
+          '</span></summary><div class="panel-body">x</div></details>' +
+          '<details class="csv-import" id="csv"><summary>Import from a CSV export</summary>' +
+          "<div>x</div></details>",
+        viewport,
+      );
+
+      const offsets = await page.evaluate(() => {
+        const found: Record<string, number> = {};
+        for (const id of ["short", "wrapped", "csv"]) {
+          for (const open of [false, true]) {
+            const details = document.getElementById(id) as HTMLDetailsElement;
+            details.open = open;
+            const summary = details.querySelector("summary")!;
+            const heading = summary.querySelector(".panel-heading");
+            let top: number;
+            let bottom: number;
+            if (heading) {
+              const r = heading.getBoundingClientRect();
+              top = r.top;
+              bottom = r.bottom;
+            } else {
+              const r = summary.getBoundingClientRect();
+              const cs = getComputedStyle(summary);
+              top = r.top + parseFloat(cs.paddingTop);
+              bottom = r.bottom - parseFloat(cs.paddingBottom);
+            }
+            const box = details.getBoundingClientRect();
+            const border = parseFloat(getComputedStyle(details).borderTopWidth);
+            const regionTop = box.top + border;
+            const body = details.querySelector(".panel-body");
+            const regionBottom = open
+              ? body
+                ? body.getBoundingClientRect().top
+                : summary.getBoundingClientRect().bottom +
+                  parseFloat(getComputedStyle(details).paddingTop)
+              : box.bottom - border;
+            found[`${id} ${open ? "open" : "closed"}`] =
+              top - regionTop - (regionBottom - bottom);
+          }
+        }
+        return found;
+      });
+
+      for (const [which, offset] of Object.entries(offsets)) {
+        expect(
+          Math.abs(offset),
+          `${which}: heading sits ${offset.toFixed(2)}px ${offset > 0 ? "low" : "high"}`,
+        ).toBeLessThanOrEqual(0.25);
+      }
+    });
+  }
 
   /**
    * Native control chrome has to be painted for the theme the page is wearing.

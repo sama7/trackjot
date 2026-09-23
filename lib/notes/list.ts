@@ -1,4 +1,5 @@
 import { Prisma, type DatePrecision, type PlacePrecision, type Visibility } from "@prisma/client";
+import { trackUrl } from "@/lib/music/provider-url";
 import { formatExperienced } from "@/lib/format-date";
 
 /**
@@ -91,7 +92,7 @@ export function toNoteRow(note: NoteWithSubject): NoteRowData {
       null,
     artworkUrl:
       recording?.artworkUrl ?? recording?.album?.artworkUrl ?? collection?.artworkUrl ?? null,
-    providerUrl: recording?.externalIds[0]?.providerUrl ?? null,
+    providerUrl: trackUrl(recording?.externalIds[0]),
     providerName: providerLabel(recording?.externalIds[0]?.provider ?? null),
     experiencedLabel: formatExperienced(note.experiencedAt, note.experiencedPrecision),
     experiencedAt: note.experiencedAt,

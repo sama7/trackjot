@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth";
+import { linkProviderNames } from "@/lib/music/link-providers";
+import { requireOnboardedUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { CoverArt } from "@/components/cover-art";
 import { providerLabel } from "@/lib/notes/list";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Your collections" };
 
 export default async function CollectionsPage() {
-  const user = await requireUser();
+  const user = await requireOnboardedUser("/collections");
 
   const collections = await prisma.collection.findMany({
     where: { ownerId: user.id },
@@ -43,7 +44,7 @@ export default async function CollectionsPage() {
 
       {collections.length === 0 ? (
         <p className="note" style={{ marginTop: "1.5rem" }}>
-          Nothing yet. Paste a Spotify or Apple Music album or playlist link on the{" "}
+          Nothing yet. Paste a {linkProviderNames()} album or playlist link on the{" "}
           <Link href="/notes">notes page</Link> and the whole thing comes across — or
           import a CSV above.
         </p>

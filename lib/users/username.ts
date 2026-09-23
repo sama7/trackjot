@@ -99,3 +99,85 @@ export async function isUsernameAvailable(raw: string): Promise<boolean> {
   });
   return !existing;
 }
+
+/**
+ * Turn anything — an email's local part, a display name — into a candidate
+ * that passes the shape rules, or null if nothing usable is left.
+ */
+export function toUsernameCandidate(raw: string): string | null {
+  const cleaned = raw
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 30);
+  if (cleaned.length < 3) return null;
+  return checkUsernameShape(cleaned) === "reserved" ? `${cleaned.slice(0, 26)}_fan` : cleaned;
+}
+
+/**
+ * Up to `count` available handles close to what was asked for.
+ *
+ * A bare "taken" is a dead end: the person is left guessing variations and
+ * submitting them one at a time. Offering a few that are known to be free
+ * turns it into a choice. Candidates are checked against the database in one
+ * query, so this is a single round trip however many are proposed.
+ */
+export async function suggestUsernames(raw: string, count = 3): Promise<string[]> {
+  const base = toUsernameCandidate(raw);
+  if (!base) return [];
+
+  const stem = base.slice(0, 25);
+  const year = new Date().getFullYear() % 100;
+  const candidates = [
+    `${stem}_`,
+    `${stem}${year}`,
+    `the_${stem}`.slice(0, 30),
+    `${stem}_music`.slice(0, 30),
+    ...Array.from({ length: 6 }, (_, i) => `${stem}${i + 2}`),
+    ...Array.from({ length: 4 }, () => `${stem}${Math.floor(100 + Math.random() * 900)}`),
+  ].filter((c, i, all) => !checkUsernameShape(c) && all.indexOf(c) === i && c !== base);
+
+  const taken = new Set(
+    (
+      await prisma.user.findMany({
+        where: { username: { in: candidates } },
+        select: { username: true },
+      })
+    ).map((u) => u.username),
+  );
+  return candidates.filter((c) => !taken.has(c)).slice(0, count);
+}
+
+export interface UsernameCheck {
+  available: boolean;
+  message: string | null;
+  suggestions: string[];
+}
+
+/**
+ * Is this handle free for *this* user?
+ *
+ * Their own current username counts as available: re-saving it is not a
+ * conflict, and telling someone their own name is "taken" would be absurd.
+ */
+export async function checkUsername(raw: string, forUserId: string | null): Promise<UsernameCheck> {
+  const problem = checkUsernameShape(raw);
+  if (problem) {
+    return {
+      available: false,
+      message: describeProblem(problem),
+      suggestions: problem === "reserved" ? await suggestUsernames(raw) : [],
+    };
+  }
+  const existing = await prisma.user.findUnique({
+    where: { username: normalizeUsername(raw) },
+    select: { id: true },
+  });
+  if (!existing || existing.id === forUserId) {
+    return { available: true, message: null, suggestions: [] };
+  }
+  return { available: false, message: describeProblem("taken"), suggestions: await suggestUsernames(raw) };
+}

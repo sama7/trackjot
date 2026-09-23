@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { trackUrl } from "@/lib/music/provider-url";
 import { formatExperienced, formatDay } from "@/lib/format-date";
 
 /**
@@ -84,9 +85,9 @@ export async function collectExport(ownerId: string) {
       note.recording?.externalIds.map((e) => ({
         provider: e.provider,
         providerId: e.providerId,
-        url: e.providerUrl,
+        url: trackUrl(e),
       })) ?? [],
-    links: note.recording?.externalIds.map((e) => e.providerUrl).filter(Boolean) ?? [],
+    links: note.recording?.externalIds.map((e) => trackUrl(e)).filter(Boolean) ?? [],
     aboutCollection: note.collection?.name ?? null,
     inCollection: note.collectionItem?.collection.name ?? null,
     positionInCollection: note.collectionItem ? note.collectionItem.position + 1 : null,

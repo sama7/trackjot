@@ -11,6 +11,8 @@ import { parseAppleMusicLink } from "@/lib/music/apple/parse-link";
 import { fetchAppleTrack } from "@/lib/music/apple/itunes";
 import { AppleMusicUnavailableError } from "@/lib/music/apple/music-api";
 import type { Recording } from "@prisma/client";
+import { parseTidalLink, type TidalRef } from "@/lib/music/tidal/parse-link";
+import { fetchTidalTrack, tidalConfigured, TidalUnavailableError } from "@/lib/music/tidal/api";
 
 /**
  * Capturing a single pasted track link, from either provider.
@@ -77,6 +79,7 @@ export interface CaptureOptions {
   resolveShortLink?: typeof resolveSpotifyShortLink;
   fetchTrackImpl?: typeof fetchTrack;
   fetchAppleTrackImpl?: typeof fetchAppleTrack;
+  fetchTidalTrackImpl?: typeof fetchTidalTrack;
 }
 
 const COLLECTION_HINT =
@@ -89,6 +92,8 @@ export async function captureFromLink(
 ): Promise<CaptureOutcome> {
   const apple = parseAppleMusicLink(input);
   if (apple.kind !== "unsupported") return captureAppleTrack(apple, options);
+  const tidal = parseTidalLink(input);
+  if (tidal.kind !== "unsupported") return captureTidalTrack(tidal, options);
   return captureSpotifyTrack(input, options);
 }
 
@@ -151,9 +156,14 @@ export async function captureFromProviderRef(
   providerId: string,
   options: CaptureOptions = {},
 ): Promise<CaptureOutcome> {
-  return provider === Provider.apple_music
-    ? captureAppleTrackById(providerId, options)
-    : captureSpotifyTrackById(providerId, undefined, options);
+  switch (provider) {
+    case Provider.apple_music:
+      return captureAppleTrackById(providerId, options);
+    case Provider.tidal:
+      return captureTidalTrackById(providerId, options);
+    default:
+      return captureSpotifyTrackById(providerId, undefined, options);
+  }
 }
 
 async function captureSpotifyTrackById(
@@ -340,6 +350,62 @@ async function captureAppleTrackById(
         error.reason === "not-found"
           ? "Apple Music doesn't have that track available."
           : "We couldn't reach Apple Music just now. Try again in a moment.",
+    };
+  }
+}
+
+async function captureTidalTrack(ref: TidalRef, options: CaptureOptions): Promise<CaptureOutcome> {
+  switch (ref.kind) {
+    case "album":
+    case "playlist":
+      return { ok: false, reason: "collection", message: COLLECTION_HINT };
+    case "artist":
+      return {
+        ok: false,
+        reason: "artist",
+        message: "TrackJot captures tracks, albums and playlists — not artist pages yet.",
+      };
+    case "short-link":
+      return {
+        ok: false,
+        reason: "short-link",
+        message: "Open that tidal.link in Tidal and copy the full track link instead.",
+      };
+    case "unsupported":
+      return { ok: false, reason: "unsupported", message: "That doesn't look like a Tidal track link." };
+    case "track":
+      return captureTidalTrackById(ref.id, options);
+  }
+}
+
+async function captureTidalTrackById(id: string, options: CaptureOptions): Promise<CaptureOutcome> {
+  // DATABASE FIRST, as for every provider.
+  const known = await findByProviderId(Provider.tidal, id);
+  if (known) return { ok: true, recording: known, source: "database", linked: true };
+
+  if (!options.fetchTidalTrackImpl && !tidalConfigured()) {
+    return {
+      ok: false,
+      reason: "provider-unavailable",
+      message: "Tidal links can't be read here yet. You can enter the details yourself instead.",
+    };
+  }
+  try {
+    const track = await (options.fetchTidalTrackImpl ?? fetchTidalTrack)(id);
+    if (!track) {
+      return { ok: false, reason: "provider-unavailable", message: "Tidal doesn't have that track available." };
+    }
+    const recording = await persist(Provider.tidal, track);
+    return { ok: true, recording, source: "provider", linked: true };
+  } catch (error) {
+    if (!(error instanceof TidalUnavailableError)) throw error;
+    return {
+      ok: false,
+      reason: "provider-unavailable",
+      message:
+        error.reason === "rate-limited"
+          ? "Tidal is busy right now. Try again in a minute."
+          : "We couldn't reach Tidal just now. Try again in a moment.",
     };
   }
 }

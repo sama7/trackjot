@@ -759,6 +759,15 @@ model Import {
 ///
 /// Unique on (visitorId, occurredOn) so refreshing the sign-in page records
 /// one event per browser per day rather than one per keystroke.
+/// A sign-in subject whose account was just deleted, so a still-valid session
+/// token cannot lazily re-create it. Pruned after a day. See the migration.
+model IdentityTombstone {
+  authSubject String   @id @map("auth_subject")
+  deletedAt   DateTime @default(now()) @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("identity_tombstones")
+}
+
 model AuthLapse {
   id        String @id @default(uuid()) @db.Uuid
   visitorId String @map("visitor_id")

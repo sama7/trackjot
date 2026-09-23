@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useClerk } from "@clerk/nextjs";
 import { useState } from "react";
 import { deleteAccountAction, deleteListeningHistoryAction } from "./actions";
 
@@ -92,7 +92,7 @@ function DeleteHistory() {
 }
 
 function DeleteAccount({ username }: { username: string | null }) {
-  const router = useRouter();
+  const { signOut } = useClerk();
   const [state, setState] = useState<{ error?: string; done?: string }>({});
   const [busy, setBusy] = useState(false);
   const expected = username ?? "delete my account";
@@ -112,15 +112,39 @@ function DeleteAccount({ username }: { username: string | null }) {
         setBusy(true);
         try {
           const result = await deleteAccountAction(formData);
-          setState(result);
-          // Nothing on this page belongs to anyone any more. `refresh()` as
-          // well as `push()`: the router cache still holds the signed-in render
-          // of the page being left, and without it the deleted account's own
-          // notes flash back on the way out.
-          if (result.done) {
-            router.replace("/");
-            router.refresh();
+          if (!result.done) {
+            setState(result);
+            return;
           }
+          /**
+           * Leave by a full page load, whatever Clerk's client does.
+           *
+           * The identity is already deleted on the server, and the server now
+           * refuses to re-create it (`isDeletedIdentity`). What is left is this
+           * browser's copy of the session token, which stays valid for up to a
+           * minute. It is dropped here rather than from the Server Action,
+           * because changing a cookie inside an action makes Next re-render
+           * the page in that same request — still signed in, which is exactly
+           * how the account used to come straight back.
+           *
+           * `signOut()` tidies Clerk's client state but rejects once the user no
+           * longer exists, and waiting on it left the page sitting on "deleted"
+           * while still looking signed in. So it gets a moment, and then we go
+           * regardless; a hard navigation also drops every cached page.
+           */
+          setState(result);
+          for (const pair of document.cookie.split(";")) {
+            const name = pair.split("=")[0]?.trim() ?? "";
+            if (name === "__session" || name.startsWith("__session_")) {
+              document.cookie = `${name}=; Max-Age=0; path=/`;
+            }
+          }
+          await Promise.race([
+            signOut().catch(() => {}),
+            new Promise((resolve) => setTimeout(resolve, 2_000)),
+          ]);
+          window.location.assign(new URL("/?account=deleted", window.location.origin).href);
+          return;
         } catch {
           setState({ error: "That didn’t work. Try again." });
         } finally {
@@ -131,8 +155,8 @@ function DeleteAccount({ username }: { username: string | null }) {
       <p className="note">
         <strong>Your whole account.</strong> Every note, collection, tag, listen and
         anything you typed in yourself, permanently and immediately. Shared links stop
-        working. This cannot be undone. Your sign-in with the email provider is separate
-        and is not deleted here.
+        working, and you are signed out everywhere. This cannot be undone. Signing in
+        again afterwards — with Google or by email — starts a brand-new, empty account.
       </p>
       <div className="field">
         <label htmlFor="confirm">

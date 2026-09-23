@@ -9,6 +9,14 @@ import { fetchAppleAlbumCatalog, fetchApplePlaylistCatalog } from "@/lib/music/a
 import { appleMusicConfigured } from "@/lib/music/apple/developer-token";
 import { AppleMusicUnavailableError } from "@/lib/music/apple/music-api";
 import { NO_ARTWORK, type Artwork } from "@/lib/music/artwork";
+import { parseTidalLink, type TidalRef } from "@/lib/music/tidal/parse-link";
+import {
+  fetchTidalAlbum,
+  fetchTidalPlaylist,
+  fetchTidalTrack,
+  tidalConfigured,
+  TidalUnavailableError,
+} from "@/lib/music/tidal/api";
 
 /**
  * Look at a pasted link and say what it is — **without creating anything**.
@@ -65,12 +73,95 @@ export type LinkPreview =
   | { kind: "unavailable"; message: string };
 
 const NOT_A_LINK =
-  "That doesn't look like a Spotify or Apple Music link. Check it, or switch to entering the details yourself.";
+  "That doesn't look like a music link we can read. Check it, or switch to entering the details yourself.";
 
 export async function previewLink(input: string): Promise<LinkPreview> {
   const apple = parseAppleMusicLink(input);
   if (apple.kind !== "unsupported") return previewApple(apple);
+  const tidal = parseTidalLink(input);
+  if (tidal.kind !== "unsupported") return previewTidal(tidal);
   return previewSpotify(input);
+}
+
+// --- Tidal -------------------------------------------------------------------
+
+async function previewTidal(ref: TidalRef): Promise<LinkPreview> {
+  if (ref.kind === "artist") {
+    return {
+      kind: "unsupported",
+      message: "That's an artist page. Paste a track, album or playlist instead.",
+    };
+  }
+  if (ref.kind === "short-link") {
+    return {
+      kind: "unsupported",
+      message: "Open that tidal.link in Tidal and copy the full link — we don't follow short links.",
+    };
+  }
+  if (ref.kind === "unsupported") return { kind: "unsupported", message: NOT_A_LINK };
+
+  if (ref.kind === "track") {
+    const known = await knownRecording(Provider.tidal, ref.id);
+    if (known) return known;
+  }
+  if (!tidalConfigured()) {
+    return {
+      kind: "unavailable",
+      message:
+        ref.kind === "track"
+          ? "Tidal links can't be read here yet. You can enter the details yourself instead."
+          : "Tidal collections can't be read here yet. A CSV export still works.",
+    };
+  }
+
+  try {
+    if (ref.kind === "track") {
+      const track = await fetchTidalTrack(ref.id);
+      if (!track) return { kind: "unavailable", message: "Tidal doesn't have that track available." };
+      return {
+        kind: "track",
+        provider: Provider.tidal,
+        providerId: track.providerId,
+        title: track.name,
+        artistDisplay: track.artistDisplay,
+        albumTitle: track.album?.name ?? null,
+        artwork: track.artwork ?? NO_ARTWORK,
+        knownRecordingId: null,
+        fromDatabase: false,
+      };
+    }
+
+    const data = ref.kind === "album" ? await fetchTidalAlbum(ref.id) : await fetchTidalPlaylist(ref.id);
+    if (!data) {
+      return {
+        kind: "unavailable",
+        message:
+          ref.kind === "playlist"
+            ? "Tidal won't share that playlist — it may be private, or not available in this region. A CSV export still works."
+            : "Tidal doesn't have that album available in this region.",
+      };
+    }
+    return {
+      kind: "collection",
+      collectionKind: data.kind,
+      provider: Provider.tidal,
+      providerId: data.providerId,
+      name: data.name,
+      byline: ref.kind === "album" ? data.tracks[0]?.album?.artists.map((a) => a.name).join(", ") || null : null,
+      artwork: data.artwork ?? NO_ARTWORK,
+      trackCount: data.tracks.length,
+      truncated: data.truncated,
+    };
+  } catch (error) {
+    if (!(error instanceof TidalUnavailableError)) throw error;
+    return {
+      kind: "unavailable",
+      message:
+        error.reason === "rate-limited"
+          ? "Tidal is busy right now. Try again in a minute."
+          : "We couldn't reach Tidal just now.",
+    };
+  }
 }
 
 // --- Spotify -----------------------------------------------------------------

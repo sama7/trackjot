@@ -1,4 +1,5 @@
 import { Prisma, Provider, RecordingOrigin } from "@prisma/client";
+import { canonicalTrackUrl } from "@/lib/music/provider-url";
 import { normalizedKey } from "@/lib/music/normalize";
 import type { ImportableArtist, ImportableTrack } from "./importable";
 
@@ -130,6 +131,7 @@ export async function resolveImportableTrack(
           create: {
             provider,
             providerId: track.providerId,
+            providerUrl: canonicalTrackUrl(provider, track.providerId),
             isrc: track.isrc,
             sourceMetadata: {
               artistIds: track.artists.map((a) => a.providerId),

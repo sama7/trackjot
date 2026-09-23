@@ -24,7 +24,15 @@ export function testEmail(label: string): string {
   return `tj_${label}_${Date.now()}_${Math.floor(Math.random() * 10_000)}+clerk_test@example.com`;
 }
 
-export async function signUp(page: Page, email: string): Promise<void> {
+/**
+ * Returns the username the new account chose, so a spec can find its own rows.
+ * `stopAtWelcome` leaves the browser on the username step for specs about it.
+ */
+export async function signUp(
+  page: Page,
+  email: string,
+  options: { username?: string; stopAtWelcome?: boolean } = {},
+): Promise<string | null> {
   await setupClerkTestingToken({ page });
 
   await page.goto("/sign-up");
@@ -34,7 +42,13 @@ export async function signUp(page: Page, email: string): Promise<void> {
   await page.getByRole("button", { name: /^continue$/i }).first().click();
 
   await fillCode(page);
-  await landOnNotes(page);
+  if (options.stopAtWelcome) {
+    await page.waitForURL((url) => !/\/sign-(in|up)/.test(url.pathname), { timeout: 30_000 });
+    await page.goto("/notes");
+    await page.waitForURL(/\/welcome/, { timeout: 30_000 });
+    return null;
+  }
+  return landOnNotes(page, options.username);
 }
 
 export async function signIn(page: Page, email: string): Promise<void> {
@@ -59,10 +73,31 @@ export async function signIn(page: Page, email: string): Promise<void> {
  * bounced is itself the proof that the proxy gate accepted the session and the
  * lazy local-user upsert completed.
  */
-async function landOnNotes(page: Page): Promise<void> {
+async function landOnNotes(page: Page, username?: string): Promise<string | null> {
   await page.waitForURL((url) => !/\/sign-(in|up)/.test(url.pathname), { timeout: 30_000 });
   await page.goto("/notes");
+  await page.waitForURL(/\/(notes|welcome)/, { timeout: 30_000 });
+  let chosen: string | null = null;
+  if (new URL(page.url()).pathname === "/welcome") chosen = await chooseUsername(page, username);
   await page.waitForURL(/\/notes/, { timeout: 30_000 });
+  return chosen;
+}
+
+/** Distinct per call, and inside the 3–30 character rule. */
+export function testUsername(label = "t"): string {
+  return `${label}_${Date.now().toString(36)}${Math.floor(Math.random() * 1_000)}`.slice(0, 30);
+}
+
+/**
+ * A new account must choose a username before anything else — every signed-in
+ * page sends it to `/welcome` until it has one. Filled explicitly rather than
+ * accepting the suggestion, so a test never depends on what was derived from
+ * its email address.
+ */
+export async function chooseUsername(page: Page, username = testUsername()): Promise<string> {
+  await page.getByLabel(/^username$/i).fill(username);
+  await page.getByRole("button", { name: /^continue$/i }).click();
+  return username;
 }
 
 /**

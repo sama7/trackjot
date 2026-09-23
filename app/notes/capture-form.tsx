@@ -33,7 +33,7 @@ import {
 
 type Mode = "link" | "manual";
 
-export function CaptureForm() {
+export function CaptureForm({ providers = "Spotify or Apple Music" }: { providers?: string }) {
   const [mode, setMode] = useState<Mode>("link");
 
   return (
@@ -65,7 +65,7 @@ export function CaptureForm() {
 
       {mode === "link" ? (
         <div id="panel-link" role="tabpanel" aria-labelledby="tab-link">
-          <LinkMode />
+          <LinkMode providers={providers} />
         </div>
       ) : (
         <div id="panel-manual" role="tabpanel" aria-labelledby="tab-manual">
@@ -76,7 +76,7 @@ export function CaptureForm() {
   );
 }
 
-function LinkMode() {
+function LinkMode({ providers }: { providers: string }) {
   const [lookup, lookupAction, looking] = useActionState<LookupState, FormData>(lookUpLink, {});
   const preview = lookup.preview;
 
@@ -110,7 +110,7 @@ function LinkMode() {
             </button>
           </div>
           <p id="hint-link" className="note hint">
-            A Spotify or Apple Music track, album or playlist.
+            A {providers} track, album or playlist.
           </p>
         </div>
 

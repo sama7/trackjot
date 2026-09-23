@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { linkProviderNames } from "@/lib/music/link-providers";
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
+import { isDeletedIdentity } from "@/lib/auth";
 import { SignInButton, SignUpButton } from "@clerk/nextjs";
 
 /**
@@ -18,14 +20,26 @@ import { SignInButton, SignUpButton } from "@clerk/nextjs";
  * product surface (AGENTS.md §3a).
  */
 
-export default async function Home() {
-  const { userId } = await auth();
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | undefined>>;
+}) {
+  const [{ userId }, params] = await Promise.all([auth(), searchParams]);
 
   // Someone signed in has no use for the pitch; send them to their notes.
-  if (userId) redirect("/notes");
+  // A token that outlived its deleted account is not a signed-in visitor.
+  if (userId && !(await isDeletedIdentity(userId))) redirect("/notes");
 
   return (
     <main>
+      {/* Said once, where a deleted account lands, so the end of an account is
+          confirmed rather than inferred from finding yourself signed out. */}
+      {params.account === "deleted" && (
+        <p role="status" className="success">
+          Your account and everything in it has been deleted, and you have been signed out.
+        </p>
+      )}
       <p className="eyebrow">TrackJot · a private music journal</p>
       <h1>Keep what music means to you.</h1>
       <p className="lede">
@@ -57,7 +71,7 @@ export default async function Home() {
         <div>
           <h2>Paste from anywhere</h2>
           <p className="note">
-            Spotify and Apple Music tracks, albums and public playlists all resolve
+            {linkProviderNames().replace(" or ", " and ")} tracks, albums and public playlists all resolve
             to real recordings with real artists. No streaming login, ever. If a
             link can&rsquo;t be read, type the track in yourself — a note is never
             blocked on metadata.

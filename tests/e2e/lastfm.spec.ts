@@ -201,7 +201,7 @@ test.describe("the recently-played strip updates itself", () => {
     await page.goto("/notes");
     await requireStrip(page);
 
-    const jot = page.getByRole("button", { name: /^jot this$/i }).first();
+    const jot = page.getByRole("button", { name: /^add note about /i }).first();
     // Only meaningful when there is something to jot.
     await expect(jot, "no scrobbles to write about").toBeVisible({ timeout: 15_000 });
 

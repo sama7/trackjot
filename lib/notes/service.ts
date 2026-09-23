@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { trackUrl } from "@/lib/music/provider-url";
 import { DatePrecision, PlacePrecision, Visibility, type Note } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
@@ -421,7 +422,7 @@ export async function getSharedNoteView(shareToken: string): Promise<SharedNote 
           artworkThumbUrl: true,
           album: { select: { title: true, artworkUrl: true, artworkThumbUrl: true } },
           externalIds: {
-            select: { provider: true, providerUrl: true },
+            select: { provider: true, providerId: true, providerUrl: true },
             take: 1,
           },
         },
@@ -446,7 +447,7 @@ export async function getSharedNoteView(shareToken: string): Promise<SharedNote 
       recording?.artworkUrl ??
       recording?.album?.artworkUrl ??
       null,
-    providerUrl: external?.providerUrl ?? null,
+    providerUrl: trackUrl(external),
     providerName: providerLabel(external?.provider ?? null),
     tags: note.tags.map((t) => t.tag.name),
     // A username the person chose, their display name, or nothing at all.

@@ -18,6 +18,9 @@ import { fetchAppleAlbum } from "@/lib/music/apple/itunes";
 import { fetchAppleAlbumCatalog, fetchApplePlaylistCatalog } from "@/lib/music/apple/catalog";
 import { appleMusicConfigured } from "@/lib/music/apple/developer-token";
 import { AppleMusicUnavailableError } from "@/lib/music/apple/music-api";
+import { fetchTidalAlbum, fetchTidalPlaylist, tidalConfigured, TidalUnavailableError } from "@/lib/music/tidal/api";
+import { parseTidalLink } from "@/lib/music/tidal/parse-link";
+import { providerLabel } from "@/lib/notes/list";
 import {
   applyReconciliation,
   planReconciliation,
@@ -232,7 +235,7 @@ async function fetchSource(
   return {
     recordingIds,
     truncated: data.truncated,
-    label: provider === Provider.apple_music ? "Apple Music" : "Spotify",
+    label: providerLabel(provider) ?? "Spotify",
   };
 }
 
@@ -256,6 +259,11 @@ async function fetchCollectionData(
       return album ? fromAppleCollection(album, "album") : null;
     }
 
+    if (provider === Provider.tidal) {
+      if (!tidalConfigured()) return null;
+      return kind === "playlist" ? await fetchTidalPlaylist(sourceId) : await fetchTidalAlbum(sourceId);
+    }
+
     if (!spotifyConfigured()) return null;
 
     const data =
@@ -270,6 +278,7 @@ async function fetchCollectionData(
      * album endpoint first and let the throw escape as a 500.
      */
     if (error instanceof SpotifyUnavailableError) return null;
+    if (error instanceof TidalUnavailableError && error.reason === "not-found") return null;
     throw error;
   }
 }
@@ -293,6 +302,12 @@ function collectionKind(
     if (sourceId.startsWith("pl.")) return "playlist";
     const ref = sourceUrl ? parseAppleMusicLink(sourceUrl) : null;
     return ref?.kind === "playlist" ? "playlist" : "album";
+  }
+
+  if (provider === Provider.tidal) {
+    // Tidal playlist ids are UUIDs; album ids are numeric.
+    if (sourceId.includes("-")) return "playlist";
+    return sourceUrl && parseTidalLink(sourceUrl).kind === "playlist" ? "playlist" : "album";
   }
 
   const ref = sourceUrl ? parseSpotifyLink(sourceUrl) : null;

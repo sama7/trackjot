@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
+import { timeZoneOptions } from "@/lib/time-zones";
 import { setTimeZoneAction } from "./actions";
 
 /**
@@ -22,8 +23,19 @@ export function TimeZoneForm({ current }: { current: string | null }) {
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const guess = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const zones = supportedZones(guess, current);
+  /**
+   * The device's zone, read on the client only.
+   *
+   * Reading it during render made the server (which runs in UTC) and the
+   * browser disagree about the markup, so React had to throw the server's
+   * version away. The server snapshot is "unknown", and the browser fills it in.
+   */
+  const guess = useSyncExternalStore(
+    noop,
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+    () => null,
+  );
+  const options = timeZoneOptions([current, guess]);
 
   async function save(formData: FormData) {
     setSaving(true);
@@ -46,12 +58,13 @@ export function TimeZoneForm({ current }: { current: string | null }) {
         <select
           id="timeZone"
           name="timeZone"
-          defaultValue={current ?? guess}
+          defaultValue={current ?? guess ?? "America/New_York"}
+          key={current ?? guess ?? "none"}
           aria-describedby="hint-tz"
         >
-          {zones.map((zone) => (
-            <option key={zone} value={zone}>
-              {zone === guess ? `${zone} — this device` : zone}
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.value === guess ? `${option.label} — this device` : option.label}
             </option>
           ))}
         </select>
@@ -79,21 +92,6 @@ export function TimeZoneForm({ current }: { current: string | null }) {
   );
 }
 
-/**
- * Every zone the runtime knows, with the device's guess and the current setting
- * pinned to the top so neither takes scrolling to find.
- *
- * `supportedValuesOf` is the standard list and is widely available; where it is
- * not, a short fallback keeps the control usable rather than empty.
- */
-function supportedZones(guess: string, current: string | null): string[] {
-  let all: string[] = [];
-  try {
-    all = Intl.supportedValuesOf("timeZone");
-  } catch {
-    all = ["UTC", "America/New_York", "America/Los_Angeles", "Europe/London", "Asia/Karachi"];
-  }
-  const pinned = [current, guess].filter((z): z is string => Boolean(z));
-  const rest = all.filter((z) => !pinned.includes(z));
-  return [...new Set([...pinned, ...rest])];
+function noop(): () => void {
+  return () => {};
 }
