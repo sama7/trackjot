@@ -1729,10 +1729,26 @@ via Deezer, like Spotify-anchored tracks. Feature-flagged on
 `TIDAL_CLIENT_ID`/`TIDAL_CLIENT_SECRET` (+ optional `TIDAL_COUNTRY_CODE`,
 default US); unconfigured, Tidal links are recognised and politely refused, and
 no copy names Tidal. Built against Tidal's published OpenAPI spec v1.10.134 and
-fixture-tested; **not yet exercised against the live API** — first thing to do
-once credentials exist. Artwork host allowlisted as `resources.tidal.com`; if
-the v2 API serves art from another host, covers will be absent (nothing else
-breaks) until it is added.
+fixture-tested, then **verified against the live API on 2026-09-23** once
+credentials existed: a track (with its Deezer preview), its album (the pasted
+track reused, not duplicated), Tidal's editorial "DJ Hits" (50) and a user
+playlist "Wohnzimmer" (641 tracks, ~30 s). Art is served from
+`resources.tidal.com` as allowlisted. Two fixes came from the live run: Tidal
+pages items ~20 at a time and answers the fifth rapid request with
+`429 Retry-After: 4`, which is now waited out; and the preview reads the track
+count from the collection record in one request instead of walking every page.
+Imports cap at 40 pages (~800 tracks), which also keeps the worst case (~36 s)
+inside nginx's 60 s proxy timeout. Credentials are on the droplet.
+
+**Unlike Spotify, Tidal serves its own editorial playlists** to client
+credentials.
+
+### A missing file answered 500
+Every bot probe for `/wp-login.html`, `/config.js` and the like returned 500,
+not 404 — 686 times in the production error log. Clerk's middleware skips
+file-like paths; the shared header used `<SignedIn>`, which throws without it.
+The header now reads the session itself; smoke asserts the 404 and was seen to
+fail against production before the fix.
 
 ### Deployed
 `6a746bc` is live on trackjot.com (build `u5pwx-zNretR2XXx16F4P`), CI green on
