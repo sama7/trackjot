@@ -38,6 +38,15 @@ const TIMEOUT_MS = 8_000;
 const MAX_PAGES = 40;
 /** `filter[id]` accepts at most 20 ids per request. */
 const BATCH = 20;
+/** How many times one import will wait out a 429, and the longest single wait. */
+const MAX_RATE_LIMIT_WAITS = 8;
+const MAX_RATE_LIMIT_DELAY_MS = 15_000;
+
+/** Replaceable in tests, so honouring Retry-After does not make them slow. */
+let sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+export function setTidalSleepForTests(fn: (ms: number) => Promise<void>): void {
+  sleep = fn;
+}
 
 export class TidalUnavailableError extends Error {
   constructor(
@@ -105,10 +114,13 @@ const TrackAttributes = z.object({
 const AlbumAttributes = z.object({
   title: z.string(),
   releaseDate: z.string().nullish(),
+  numberOfItems: z.number().nullish(),
 });
 const PlaylistAttributes = z.object({
   name: z.string(),
   description: z.string().nullish(),
+  numberOfItems: z.number().nullish(),
+  numberOfTrackItems: z.number().nullish(),
 });
 const ArtistAttributes = z.object({ name: z.string() });
 const ArtworkAttributes = z.object({
@@ -166,7 +178,12 @@ async function appToken(fetchImpl: typeof fetch): Promise<string> {
  * `links.next` is a root-relative path with its cursor already in it — and the
  * country code is added when absent.
  */
-async function get(path: string, fetchImpl: typeof fetch, retried = false): Promise<unknown> {
+async function get(
+  path: string,
+  fetchImpl: typeof fetch,
+  retried = false,
+  waits = 0,
+): Promise<unknown> {
   // `links.next` is documented as root-relative ("/albums/…?page[cursor]=…");
   // tolerate it arriving with the version prefix or as an absolute URL too.
   const relative = path.replace(/^https:\/\/openapi\.tidal\.com/, "").replace(/^\/v2(?=\/)/, "");
@@ -187,7 +204,23 @@ async function get(path: string, fetchImpl: typeof fetch, retried = false): Prom
 
   if (response.status === 401 && !retried) {
     cachedToken = null;
-    return get(path, fetchImpl, true);
+    return get(path, fetchImpl, true, waits);
+  }
+  /**
+   * Tidal pages playlist items about twenty at a time and offers no larger
+   * page, so walking a big playlist is many requests in a row — and the fifth
+   * one in quick succession was answered `429` with `Retry-After: 4`, measured
+   * against the live API on 2026-09-23. That is an instruction, not a failure:
+   * wait as told and carry on. Bounded, so a sustained limit still surfaces as
+   * "rate-limited" rather than hanging an import.
+   */
+  if (response.status === 429 && waits < MAX_RATE_LIMIT_WAITS) {
+    const seconds = Number(response.headers.get("retry-after"));
+    const delay = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 2_000;
+    if (delay <= MAX_RATE_LIMIT_DELAY_MS) {
+      await sleep(delay);
+      return get(path, fetchImpl, retried, waits + 1);
+    }
   }
   if (response.status === 404) throw new TidalUnavailableError("Not found on Tidal.", "not-found");
   if (response.status === 429) throw new TidalUnavailableError("Tidal rate limit.", "rate-limited");
@@ -407,6 +440,64 @@ export async function fetchTidalPlaylist(
       artwork: artworkFrom(coverRef ? index.get(`artworks:${coverRef.id}`) : undefined),
       truncated,
       tracks,
+    };
+  } catch (error) {
+    if (error instanceof TidalUnavailableError && error.reason === "not-found") return null;
+    throw error;
+  }
+}
+
+export interface TidalCollectionSummary {
+  kind: "album" | "playlist";
+  providerId: string;
+  name: string;
+  byline: string | null;
+  artwork: Artwork;
+  trackCount: number;
+}
+
+/**
+ * What a collection is, in one request — for the look-before-import preview.
+ *
+ * Walking the items to count them costs a request per ~20 tracks plus Tidal's
+ * rate-limit waits: 33 requests and 25 seconds for a 641-track playlist,
+ * measured live. The count is on the collection's own record, so the preview
+ * reads that and leaves the walk to the import that actually needs it.
+ */
+export async function fetchTidalCollectionSummary(
+  kind: "album" | "playlist",
+  id: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<TidalCollectionSummary | null> {
+  try {
+    const path =
+      kind === "album"
+        ? `/albums/${encodeURIComponent(id)}?include=artists,coverArt`
+        : `/playlists/${encodeURIComponent(id)}?include=coverArt`;
+    const doc = SingleDocument.parse(await get(path, fetchImpl));
+    const index = indexOf(doc.included);
+    const coverRef = related(doc.data, "coverArt")[0];
+    const artwork = artworkFrom(coverRef ? index.get(`artworks:${coverRef.id}`) : undefined);
+
+    if (kind === "album") {
+      const attributes = AlbumAttributes.parse(doc.data.attributes ?? {});
+      return {
+        kind,
+        providerId: doc.data.id,
+        name: attributes.title,
+        byline: artistsOf(doc.data, index).map((a) => a.name).join(", ") || null,
+        artwork,
+        trackCount: attributes.numberOfItems ?? 0,
+      };
+    }
+    const attributes = PlaylistAttributes.parse(doc.data.attributes ?? {});
+    return {
+      kind,
+      providerId: doc.data.id,
+      name: attributes.name,
+      byline: null,
+      artwork,
+      trackCount: attributes.numberOfTrackItems ?? attributes.numberOfItems ?? 0,
     };
   } catch (error) {
     if (error instanceof TidalUnavailableError && error.reason === "not-found") return null;

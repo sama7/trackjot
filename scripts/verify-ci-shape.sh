@@ -34,6 +34,8 @@ set +a
 
 # The point of the exercise: CI has no Last.fm credentials.
 unset LASTFM_API_KEY LASTFM_SHARED_SECRET
+# Same reasoning for Tidal: CI holds no Tidal credentials, so neither does this run.
+unset TIDAL_CLIENT_ID TIDAL_CLIENT_SECRET TIDAL_COUNTRY_CODE
 export APP_BASE_URL="$BASE"
 
 echo "==> Building"

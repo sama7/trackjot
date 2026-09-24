@@ -11,8 +11,7 @@ import { AppleMusicUnavailableError } from "@/lib/music/apple/music-api";
 import { NO_ARTWORK, type Artwork } from "@/lib/music/artwork";
 import { parseTidalLink, type TidalRef } from "@/lib/music/tidal/parse-link";
 import {
-  fetchTidalAlbum,
-  fetchTidalPlaylist,
+  fetchTidalCollectionSummary,
   fetchTidalTrack,
   tidalConfigured,
   TidalUnavailableError,
@@ -131,7 +130,7 @@ async function previewTidal(ref: TidalRef): Promise<LinkPreview> {
       };
     }
 
-    const data = ref.kind === "album" ? await fetchTidalAlbum(ref.id) : await fetchTidalPlaylist(ref.id);
+    const data = await fetchTidalCollectionSummary(ref.kind, ref.id);
     if (!data) {
       return {
         kind: "unavailable",
@@ -147,10 +146,10 @@ async function previewTidal(ref: TidalRef): Promise<LinkPreview> {
       provider: Provider.tidal,
       providerId: data.providerId,
       name: data.name,
-      byline: ref.kind === "album" ? data.tracks[0]?.album?.artists.map((a) => a.name).join(", ") || null : null,
-      artwork: data.artwork ?? NO_ARTWORK,
-      trackCount: data.tracks.length,
-      truncated: data.truncated,
+      byline: data.byline,
+      artwork: data.artwork,
+      trackCount: data.trackCount,
+      truncated: false,
     };
   } catch (error) {
     if (!(error instanceof TidalUnavailableError)) throw error;

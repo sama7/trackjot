@@ -6,6 +6,7 @@ import {
   fetchTidalPlaylist,
   fetchTidalTrack,
   resetTidalToken,
+  setTidalSleepForTests,
 } from "./api";
 
 /**
@@ -66,7 +67,13 @@ function fakeFetch(route: Route) {
   return { impl, calls };
 }
 
+const slept: number[] = [];
+
 beforeEach(() => {
+  slept.length = 0;
+  setTidalSleepForTests(async (ms) => {
+    slept.push(ms);
+  });
   process.env.TIDAL_CLIENT_ID = "id";
   process.env.TIDAL_CLIENT_SECRET = "secret";
   resetTidalToken();
@@ -146,7 +153,29 @@ describe("a single track", () => {
     await expect(fetchTidalTrack("1", impl)).rejects.toMatchObject({ reason: "not-configured" });
   });
 
-  it("reports a rate limit as such", async () => {
+  /**
+   * Measured live: the fifth rapid page request came back 429 with
+   * Retry-After: 4. That means wait, not fail.
+   */
+  it("waits out a 429 for as long as Retry-After says, then carries on", async () => {
+    let calls = 0;
+    const impl = (async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === "auth.tidal.com") {
+        return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+      }
+      calls++;
+      if (calls === 1) return new Response("{}", { status: 429, headers: { "retry-after": "4" } });
+      return new Response(JSON.stringify({ data: track("1", "After the wait"), included: [ARTIST_A] }));
+    }) as typeof fetch;
+
+    const result = await fetchTidalTrack("1", impl);
+
+    expect(result?.name).toBe("After the wait");
+    expect(slept).toEqual([4_000]);
+  });
+
+  it("gives up on a limit that will not lift, and reports it as a rate limit", async () => {
     const { impl } = fakeFetch(() => ({ status: 429 }));
     const error = await fetchTidalTrack("1", impl).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(TidalUnavailableError);
@@ -256,5 +285,43 @@ describe("an album", () => {
     expect(result).toMatchObject({ kind: "album", name: "Layers", providerId: "500" });
     expect(result!.tracks.map((t) => t.trackNumber)).toEqual([1, 2]);
     expect(result!.artwork?.url).toContain("1280x1280");
+  });
+});
+
+describe("a collection summary for the preview", () => {
+  it("reads the track count from the playlist itself, in one request", async () => {
+    const { impl, calls } = fakeFetch((url) =>
+      url.pathname === "/v2/playlists/p1"
+        ? {
+            body: {
+              data: {
+                id: "p1",
+                type: "playlists",
+                attributes: { name: "Wohnzimmer", numberOfItems: 645, numberOfTrackItems: 641 },
+                relationships: { coverArt: { data: [{ id: "art1", type: "artworks" }] } },
+              },
+              included: [ART],
+            },
+          }
+        : undefined,
+    );
+    const { fetchTidalCollectionSummary } = await import("./api");
+
+    const summary = await fetchTidalCollectionSummary("playlist", "p1", impl);
+
+    expect(summary).toMatchObject({ name: "Wohnzimmer", trackCount: 641, byline: null });
+    expect(calls.filter((c) => c.includes("openapi"))).toHaveLength(1);
+  });
+
+  it("names an album's artists", async () => {
+    const { impl } = fakeFetch((url) =>
+      url.pathname === "/v2/albums/500" ? { body: { data: ALBUM, included: [ARTIST_A, ART] } } : undefined,
+    );
+    const { fetchTidalCollectionSummary } = await import("./api");
+    expect(await fetchTidalCollectionSummary("album", "500", impl)).toMatchObject({
+      name: "Layers",
+      byline: "Joe James",
+      trackCount: 2,
+    });
   });
 });
