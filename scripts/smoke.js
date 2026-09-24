@@ -60,6 +60,17 @@ const checks = [
     describe: "the gate page answers",
   },
   { path: "/api/health", expect: (s) => s === 200, describe: "200 (database reachable)" },
+  /**
+   * A missing file-like path. The middleware skips these by design, and the
+   * shared header used to call a Clerk helper that throws without it — so every
+   * bot probe for `/wp-login.html` answered 500 and filled the error log. It
+   * must be an ordinary 404.
+   */
+  {
+    path: "/smoke-missing-file.html",
+    expect: (s) => s === 404,
+    describe: "404 (not a 500 from a page rendered without middleware)",
+  },
   {
     path: "/notes",
     expect: (s) => s === 307 || s === 302,
